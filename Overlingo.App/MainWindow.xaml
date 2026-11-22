@@ -1,0 +1,414 @@
+<Window x:Class="Overlingo.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Overlingo" Icon="Assets/overlingo.ico" Width="1120" Height="800" MinWidth="940" MinHeight="640"
+        WindowStartupLocation="CenterScreen" Background="{DynamicResource Bg}" Foreground="{DynamicResource Fg}"
+        FontFamily="Segoe UI" FontSize="13">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/Dark.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource Surface}" Padding="20,10" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0">
+            <DockPanel>
+                <CheckBox x:Name="CbAdvancedUi" DockPanel.Dock="Left" Margin="0,0,18,0" VerticalAlignment="Center" Content="Zobrazit pokročilá nastavení" Click="OnAdvancedUiToggled"/>
+                <Button x:Name="BtnSave" Content="Uložit a použít nastavení" DockPanel.Dock="Right" Margin="12,0,0,0" Style="{StaticResource AccentButton}" Click="OnSave"/>
+                <TextBlock x:Name="StatusBar" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="{StaticResource Muted}" Text="Připraveno."/>
+            </DockPanel>
+        </Border>
+        <Grid>
+            <TabControl x:Name="Tabs">
+            <!-- PŘEHLED -->
+            <TabItem x:Name="TabHome" Header="🏠  Přehled">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="940" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="Přehled"/>
+                    <Border Style="{StaticResource Card}" Padding="22">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="StateDot" Width="12" Height="12" Fill="{StaticResource Muted}" Margin="0,2,10,0" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="TileState" Text="Zastaveno" FontSize="24" FontWeight="SemiBold"/>
+                                </StackPanel>
+                                <TextBlock x:Name="TileSub" Foreground="{StaticResource Muted}" Margin="22,4,12,0" TextWrapping="Wrap" Text="Stiskněte Spustit překlad."/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button x:Name="BtnPause" Content="Pauza OCR (F10)" Click="OnPauseOcr" Margin="0,0,10,0" Padding="16,12"/>
+                                <Button x:Name="BtnToggle" Content="▶  Spustit překlad (F8)" Click="OnToggleTranslation" Style="{StaticResource AccentButton}" Margin="0" Padding="26,13" FontSize="15"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                    <TextBlock x:Name="DashWarn" Foreground="{StaticResource Bad}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+                    <Border Style="{StaticResource Card}" Padding="22">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource H2}" Margin="0,0,0,8" Text="Rychlé nastavení"/>
+                            <TextBlock x:Name="ChkOcr" Margin="0,3"/>
+                            <TextBlock x:Name="ChkSource" Margin="0,3"/>
+                            <TextBlock x:Name="ChkTranslator" Margin="0,3"/>
+                            <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0" Text="Nejjednodušší cesta: spusťte průvodce, vyberte hru, jazyky a překladač, označte titulky a stiskněte Spustit překlad."/>
+                            <WrapPanel Margin="0,12,0,0">
+                                <Button Style="{StaticResource AccentButton}" Content="🚀  Spustit průvodce nastavením" Click="OnRunWizard"/>
+                                <Button Content="🎯  Vybrat oblast titulků (F11)" Click="OnSelectRegion"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Style="{StaticResource H2}" Text="Co se překládá (přepnutí také zkratkou, výchozí F7)"/>
+                    <UniformGrid Columns="2" Margin="0,0,0,14">
+                        <RadioButton x:Name="RbScopeDialog" GroupName="scope" Style="{StaticResource CardRadio}" Checked="OnScopeChanged">
+                            <StackPanel>
+                                <TextBlock Text="💬  Jen konverzace" FontSize="15" FontWeight="SemiBold"/>
+                                <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0" Text="Titulky dole uprostřed obrazovky (oblast z Výběru oblasti). Překlad se zobrazí těsně nad originálem. Nejlehčí na CPU."/>
+                            </StackPanel>
+                        </RadioButton>
+                        <RadioButton x:Name="RbScopeFull" GroupName="scope" Style="{StaticResource CardRadio}" Margin="0" Checked="OnScopeChanged">
+                            <StackPanel>
+                                <TextBlock Text="🖥  Vše na obrazovce" FontSize="15" FontWeight="SemiBold"/>
+                                <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,0" Text="Každý anglický text se přeloží a zobrazí přímo přes původní. Dražší na CPU, interval nejméně 0,7 s."/>
+                            </StackPanel>
+                        </RadioButton>
+                    </UniformGrid>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource TileLabel}" Text="Poslední titulek"/>
+                            <TextBlock x:Name="LastEn" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,6,0,0" Text="–"/>
+                            <TextBlock x:Name="LastCs" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,4,0,0" Text="–"/>
+                        </StackPanel>
+                    </Border>
+
+                    <WrapPanel Margin="0,2,0,4">
+                        <Button x:Name="BtnOverlayVis" Content="👁  Skrýt / zobrazit overlay (F9)" Click="OnToggleOverlay"/>
+                        <Button Content="✨  Ukázka v overlayi" Click="OnOverlaySample"/>
+                    </WrapPanel>
+
+                    <Expander Header="Technické podrobnosti" Margin="0,6,0,0" Foreground="{StaticResource Muted}">
+                        <StackPanel Margin="0,10,0,0">
+                    <UniformGrid Columns="4" Margin="0,0,0,2">
+                        <Border Style="{StaticResource Card}" Margin="0,0,10,12"><StackPanel><TextBlock Style="{StaticResource TileLabel}" Text="CPU aplikace"/><TextBlock x:Name="TileCpu" Style="{StaticResource TileValue}" Text="–"/></StackPanel></Border>
+                        <Border Style="{StaticResource Card}" Margin="0,0,10,12"><StackPanel><TextBlock Style="{StaticResource TileLabel}" Text="Čas OCR"/><TextBlock x:Name="TileOcr" Style="{StaticResource TileValue}" Text="–"/></StackPanel></Border>
+                        <Border Style="{StaticResource Card}" Margin="0,0,10,12"><StackPanel><TextBlock Style="{StaticResource TileLabel}" Text="Čas překladu"/><TextBlock x:Name="TileTr" Style="{StaticResource TileValue}" Text="–"/></StackPanel></Border>
+                        <Border Style="{StaticResource Card}" Margin="0,0,0,12"><StackPanel><TextBlock Style="{StaticResource TileLabel}" Text="FPS zdroje"/><TextBlock x:Name="TileFps" Style="{StaticResource TileValue}" Text="–"/></StackPanel></Border>
+                    </UniformGrid>
+
+                    <Border Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource TileLabel}" Text="Podrobnosti"/>
+                            <TextBox x:Name="DashText" IsReadOnly="True" FontFamily="Consolas" FontSize="12.5" TextWrapping="Wrap" BorderThickness="0" Background="Transparent" Margin="0,6,0,0" Padding="0"/>
+                        </StackPanel>
+                    </Border>
+                        </StackPanel>
+                    </Expander>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <!-- ÚVODNÍ NASTAVENÍ -->
+            <TabItem x:Name="TabSetup" Header="🧰  Úvodní nastavení">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="900" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="Úvodní nastavení"/>
+                    <ContentControl x:Name="SetupHost"/>
+                    <Button Content="Spustit průvodce nastavením" Click="OnRunWizard" HorizontalAlignment="Left" Margin="0,16,0,0"/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <!-- JAZYK -->
+            <TabItem x:Name="TabLanguage" Header="🌍  Jazyk rozhraní">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="700" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="Jazyk rozhraní"/>
+                    <ComboBox x:Name="CbUiLang" Margin="0,4" DisplayMemberPath="Label" SelectionChanged="OnUiLangChanged"/>
+                    <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Text="Další jazyky stačí přidat jako soubor do složky Languages (viz Languages/README.md). Opravy překladů jsou vítané."/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <!-- ZDROJ -->
+            <TabItem x:Name="TabSource" Header="📺  Zdroj obrazu">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="900" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="Zdroj obrazu"/>
+                    <TextBlock FontWeight="SemiBold" Text="Odkud se čte obraz:" Margin="0,0,0,4"/>
+                    <RadioButton x:Name="RbWindow" GroupName="src" Content="Zachytávání okna – vyberete konkrétní okno ze seznamu" Margin="0,2" Checked="OnSourceKindChanged"/>
+                    <Grid Margin="22,2,0,6">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <ComboBox x:Name="CbWindow" IsEditable="True" DisplayMemberPath="Label"/>
+                        <Button Grid.Column="1" Content="Obnovit seznam" Margin="8,0,0,0" Click="OnRefreshSources"/>
+                    </Grid>
+                    <TextBlock x:Name="WindowFound" Margin="22,0,0,8" TextWrapping="Wrap" Foreground="{StaticResource Muted}"/>
+                    <RadioButton x:Name="RbProgram" GroupName="src" Content="Zachytávání programu – podle názvu procesu, po restartu hry se připojí znovu" Margin="0,2" Checked="OnSourceKindChanged"/>
+                    <ComboBox x:Name="CbProgram" IsEditable="True" Margin="22,2,0,8" Width="360" HorizontalAlignment="Left"/>
+                    <RadioButton x:Name="RbMonitor" GroupName="src" Content="Zachytávání celé obrazovky" Margin="0,2" Checked="OnSourceKindChanged"/>
+                    <ComboBox x:Name="CbMonitor" Margin="22,2,0,8" Width="360" HorizontalAlignment="Left"/>
+                    <RadioButton x:Name="RbElgato" GroupName="src" Content="Zachytávání ze záznamové karty" Margin="0,2" Checked="OnSourceKindChanged"/>
+                    <Grid Margin="22,2,0,10">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <ComboBox x:Name="CbCapture"/>
+                        <Button Grid.Column="1" Content="Najít karty" Margin="8,0,0,0" Click="OnRefreshCards"/>
+                    </Grid>
+                    <Separator Margin="0,4,0,10"/>
+                    <TextBlock FontWeight="SemiBold" Text="Oblast titulků (platí pro režim „Jen konverzace“; „Vše na obrazovce“ čte celý obraz):"/>
+                    <TextBlock x:Name="RegionText" Margin="0,4" TextWrapping="Wrap"/>
+                    <CheckBox x:Name="CbGameArea" Content="Počítat oblast uvnitř obrazu hry (automaticky ořízne černé pruhy kolem obrazu)" Margin="0,4"/>
+                    <Button Content="🖱  Graficky nastavit čtení i umístění překladu…" Click="OnPlacementEditor" HorizontalAlignment="Left" FontWeight="SemiBold" Margin="0,4"/>
+                    <WrapPanel Margin="0,4">
+                        <Button Content="Vybrat oblast myší (F11)" Click="OnSelectRegion"/>
+                        <Button Content="Výchozí spodní pás" Click="OnRegionDefault"/>
+                        <Button Content="Celý obraz" Click="OnRegionFull"/>
+                    </WrapPanel>
+                    <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Text="Oblast se ukládá jako zlomek obrazu, takže platí pro libovolné rozlišení. Můžete ji měnit kdykoli, i za běhu překladu."/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <!-- OCR -->
+            <TabItem x:Name="TabOcr" Header="🔎  OCR">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="900" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="OCR"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource Lbl}" Text="Interval čtení (ms):" Margin="0,4"/>
+                        <TextBox x:Name="TbInterval" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Column="2" Margin="10,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Text="100–3000, doporučeno 250–500"/>
+                        <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" Text="Režim OCR:"/>
+                        <ComboBox x:Name="CbOcrMode" Grid.Row="1" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="1" Grid.Column="2" Margin="10,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Text="Auto = izolace bílého textu, při slabém výsledku porovná s originálem"/>
+                        <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" Text="Práh světlosti textu (60–250):"/>
+                        <TextBox x:Name="TbThreshold" Grid.Row="2" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Margin="10,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Text="Citlivost: nižší = chytá i šedší text (víc šumu)"/>
+                        <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" Text="Zvětšení před OCR (1–3×):"/>
+                        <TextBox x:Name="TbUpscale" Grid.Row="3" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="4" Style="{StaticResource Lbl}" Text="Shodná čtení před zobrazením (1–5):"/>
+                        <TextBox x:Name="TbStable" Grid.Row="4" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="4" Grid.Column="2" Margin="10,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Text="Vyšší = méně chybných zobrazení, ale pomalejší reakce"/>
+                        <TextBlock Grid.Row="5" Style="{StaticResource Lbl}" Text="Práh změny obrazu (0,002–0,2):"/>
+                        <TextBox x:Name="TbChange" Grid.Row="5" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="6" Style="{StaticResource Lbl}" Text="Min. počet písmen titulku:"/>
+                        <TextBox x:Name="TbMinLetters" Grid.Row="6" Grid.Column="1" Margin="0,3"/>
+                    </Grid>
+                    <CheckBox x:Name="CbSkipNoText" Content="Přeskočit OCR, když v oblasti není žádný světlý text (šetří CPU)" Margin="0,8,0,0"/>
+                    <CheckBox x:Name="CbTesseract" Content="Pomocný druhý OCR engine Tesseract při slabém čtení (jen když je nainstalovaný)" Margin="0,4,0,0"/>
+                    <DockPanel Margin="26,4,0,0"><TextBlock Style="{StaticResource Lbl}" Text="Cesta k tesseract.exe (prázdné = automaticky):"/><TextBox x:Name="TbTessPath"/></DockPanel>
+                    <TextBlock x:Name="TessInfo" Foreground="{StaticResource Muted}" Margin="26,4,0,0" TextWrapping="Wrap"/>
+                    <Separator Margin="0,10"/>
+                    <WrapPanel>
+                        <Button Content="Test OCR teď (aktuální oblast)" Click="OnOcrNow"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="OcrEngineInfo" Foreground="{StaticResource Muted}" Margin="0,0,0,6" TextWrapping="Wrap"/>
+                    <Image x:Name="OcrPreview" MaxHeight="140" Stretch="Uniform" HorizontalAlignment="Left" Margin="0,4"/>
+                    <TextBox x:Name="OcrResult" IsReadOnly="True" TextWrapping="Wrap" MinHeight="60" FontSize="14"/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <!-- PŘEKLAD -->
+            <TabItem x:Name="TabTranslation" Header="🌐  Překlad">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="900" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="Překlad"/>
+                    <TextBlock FontWeight="SemiBold" Text="Jazyk titulků ve hře (čtení OCR) → jazyk překladu:"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,4,0,2">
+                        <ComboBox x:Name="CbSrcLang" Width="250" DisplayMemberPath="Name"/>
+                        <TextBlock Text="  →  " VerticalAlignment="Center"/>
+                        <ComboBox x:Name="CbTgtLang" Width="250" DisplayMemberPath="Name"/>
+                    </StackPanel>
+                    <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,10" Text="Změna jazyka titulků (OCR) se projeví po restartu aplikace a vyžaduje nainstalovaný jazykový balíček Windows OCR. DeepL nepodporuje všechny jazyky (hindština, hebrejština, thajština, vietnamština) – použijte Google."/>
+                    <TextBlock FontWeight="SemiBold" Text="Překladač (žádné automatické přepínání – když selže, uvidíte chybu):"/>
+                    <ComboBox x:Name="CbTranslator" Margin="0,4,0,6" Width="420" HorizontalAlignment="Left" SelectionChanged="OnTranslatorChanged"/>
+                    <Border x:Name="GoogleWarn" Background="{StaticResource WarnSoft}" BorderBrush="{StaticResource Warn}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,8">
+                        <TextBlock Foreground="{StaticResource Warn}" TextWrapping="Wrap" Text="Google Translate bez klíče používá NEOFICIÁLNÍ veřejný endpoint (translate.googleapis.com, client=gtx). Není to oficiální API, nemá záruku funkčnosti a Google ho může kdykoli omezit nebo změnit. Pro spolehlivý provoz zvažte oficiální Google Cloud API nebo DeepL s klíčem."/>
+                    </Border>
+                    <TextBlock FontWeight="SemiBold" Text="Google Cloud Translation – API klíč" Margin="0,6,0,2"/>
+                    <DockPanel><Button DockPanel.Dock="Right" Content="Smazat uložený" Margin="8,0,0,0" Click="OnClearGoogleKey"/><PasswordBox x:Name="PbGoogle" Padding="3"/></DockPanel>
+                    <TextBlock x:Name="GoogleKeyState" Foreground="{StaticResource Muted}" Margin="0,2,0,6"/>
+                    <TextBlock FontWeight="SemiBold" Text="DeepL – API klíč (Free končí na :fx → api-free.deepl.com, jinak api.deepl.com)" Margin="0,6,0,2"/>
+                    <DockPanel><Button DockPanel.Dock="Right" Content="Smazat uložený" Margin="8,0,0,0" Click="OnClearDeepLKey"/><PasswordBox x:Name="PbDeepL" Padding="3"/></DockPanel>
+                    <TextBlock x:Name="DeepLKeyState" Foreground="{StaticResource Muted}" Margin="0,2,0,6"/>
+                    <TextBlock FontWeight="SemiBold" Text="Gemini – API klíč a model" Margin="0,10,0,2"/>
+                    <DockPanel><Button DockPanel.Dock="Right" Content="Smazat uložený" Margin="8,0,0,0" Click="OnClearGeminiKey"/><PasswordBox x:Name="PbGemini" Padding="3"/></DockPanel>
+                    <TextBlock x:Name="GeminiKeyState" Foreground="{StaticResource Muted}" Margin="0,2,0,2"/>
+                    <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Lbl}" Text="Model:"/><TextBox x:Name="TbGeminiModel" Width="240"/></StackPanel>
+                    <TextBlock FontWeight="SemiBold" Text="AI přes OpenAI-kompatibilní server (Ollama, LM Studio, OpenAI, OpenRouter…)" Margin="0,12,0,2"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource Lbl}" Text="Adresa (…/v1):"/><TextBox x:Name="TbAiUrl" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" Text="Model:"/><TextBox x:Name="TbAiModel" Grid.Row="1" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" Text="API klíč (volitelný):"/><PasswordBox x:Name="PbAi" Grid.Row="2" Grid.Column="1" Margin="0,3" Padding="3"/>
+                    </Grid>
+                    <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Text="Ollama: http://localhost:11434/v1, LM Studio: http://localhost:1234/v1. Místní model nic neposílá na internet. Rychlost a kvalita závisí na modelu; AI překlad bývá pomalejší než Google, proto zkuste menší model."/>
+                    <TextBlock x:Name="AiKeyState" Foreground="{StaticResource Muted}" Margin="0,2,0,4"/>
+                    <TextBlock FontWeight="SemiBold" Margin="0,6,0,2" Text="Kontext hry pro AI (volitelné, např. „kriminální příběh, hovorová řeč, vulgarismy“):"/>
+                    <TextBox x:Name="TbAiContext" TextWrapping="Wrap"/>
+                    <TextBlock Foreground="{StaticResource Warn}" TextWrapping="Wrap" Margin="0,4,0,0" Text="Pozor: u Gemini a placených AI se text titulků posílá poskytovateli. Používání může být zpoplatněno."/>
+                    <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Muted}" Text="Klíče se ukládají šifrovaně přes Windows DPAPI (vázáno na váš účet), do logů se nikdy nezapisují."/>
+                    <WrapPanel Margin="0,8,0,0">
+                        <Button Content="Test spojení (vybraný překladač)" Click="OnTestTranslator"/>
+                        <Button Content="Smazat cache překladů" Click="OnClearCache"/>
+                    </WrapPanel>
+                    <TextBox x:Name="TranslatorTestResult" IsReadOnly="True" TextWrapping="Wrap" MinHeight="46" Margin="0,2,0,8"/>
+                    <CheckBox x:Name="CbContext" Content="Posílat předchozí titulky jako kontext (využije DeepL; Google ho ignoruje)"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,4"><TextBlock Style="{StaticResource Lbl}" Text="Počet předchozích vět kontextu (0–6):"/><TextBox x:Name="TbCtxLines" Width="60"/></StackPanel>
+                    <TextBlock FontWeight="SemiBold" Margin="0,12,0,2" Text="Slovník jmen a frází (jeden na řádek):"/>
+                    <TextBox x:Name="TbGlossary" AcceptsReturn="True" Height="110" VerticalScrollBarVisibility="Auto" FontFamily="Consolas"/>
+                    <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,0" Text="„Vice City“ = nepřekládat. „jackpot = výhra“ = vždy přeložit takto. Řádky začínající # jsou poznámky."/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <!-- OVERLAY -->
+            <TabItem x:Name="TabOverlay" Header="🖼  Overlay">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="900" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="Overlay"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="260"/><ColumnDefinition Width="180"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource Lbl}" Text="Písmo:"/>
+                        <TextBox x:Name="TbFont" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" Text="Velikost písma (10–120):"/>
+                        <TextBox x:Name="TbFontSize" Grid.Row="1" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" Text="Barva českého textu (#RRGGBB):"/>
+                        <TextBox x:Name="TbColor" Grid.Row="2" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" Text="Barva anglického textu:"/>
+                        <TextBox x:Name="TbEnColor" Grid.Row="3" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="4" Style="{StaticResource Lbl}" Text="Průhlednost pozadí (neprůhlednost):"/>
+                        <Slider x:Name="SlOpacity" Grid.Row="4" Grid.Column="1" Minimum="0" Maximum="1" Margin="0,6"/>
+                        <TextBlock Grid.Row="5" Style="{StaticResource Lbl}" Text="Max. počet zobrazených titulků (1–8):"/>
+                        <TextBox x:Name="TbMaxLines" Grid.Row="5" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="6" Style="{StaticResource Lbl}" Text="Doba zobrazení (s; 0 = automaticky):"/>
+                        <TextBox x:Name="TbSeconds" Grid.Row="6" Grid.Column="1" Margin="0,3"/>
+                    </Grid>
+                    <CheckBox x:Name="CbAutoAbove" Content="Umístit overlay automaticky NAD původní titulky (vypne se ručním přesunem)" Margin="0,8,0,0"/>
+                    <CheckBox x:Name="CbCover" Content="Zakrýt původní titulky: překlad se zobrazí PŘÍMO PŘES originál na neprůhledném černém pozadí (originál není vidět). Vypnuto = překlad je nad originálem a originál zůstane vidět." Margin="0,8,0,0"/>
+                    <CheckBox x:Name="CbShowEn" Content="Zobrazit anglický originál nad českým překladem" Margin="0,8,0,0"/>
+                    <CheckBox x:Name="CbClickThrough" Content="Click-through (klik prochází skrz overlay do hry)"/>
+                    <CheckBox x:Name="CbExclude" Content="Skrýt overlay před záchytem obrazovky (zapnuto = v OBS ho NEUVIDÍTE; vypněte, pokud ho chcete streamovat)"/>
+                    <Separator Margin="0,10"/>
+                    <WrapPanel>
+                        <Button x:Name="BtnEditOverlay" Content="Upravit polohu a velikost overlaye myší" Click="OnEditOverlay"/>
+                        <Button Content="Umístit myší (nakreslit obdélník)" Click="OnPlaceOverlayByMouse"/>
+                        <Button Content="Výchozí umístění (nad titulky)" Click="OnOverlayDefaultPlace"/>
+                        <Button Content="Zobrazit ukázku" Click="OnOverlaySample"/>
+                    </WrapPanel>
+                    <TextBlock x:Name="OverlayInfo" Foreground="{StaticResource Muted}" TextWrapping="Wrap"/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <!-- ZKRATKY -->
+            <TabItem x:Name="TabHotkeys" Header="⌨  Zkratky">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="900" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="Zkratky"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,0,0,8" Text="Klikněte do políčka a stiskněte novou kombinaci kláves (např. F8 nebo Ctrl+Shift+T). Backspace = vrátit výchozí. Použije se po „Uložit a použít“. Zkratky jsou globální (fungují i uvnitř hry)."/>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="300"/><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource Lbl}" Text="Zapnout / vypnout překlad:"/>
+                        <TextBox x:Name="HkToggle" Grid.Column="1" Margin="0,3" IsReadOnly="True" Tag="F8" PreviewKeyDown="OnHotkeyKey"/>
+                        <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" Text="Zobrazit / skrýt overlay:"/>
+                        <TextBox x:Name="HkOverlay" Grid.Row="1" Grid.Column="1" Margin="0,3" IsReadOnly="True" Tag="F9" PreviewKeyDown="OnHotkeyKey"/>
+                        <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" Text="Pauza / obnovení OCR:"/>
+                        <TextBox x:Name="HkPause" Grid.Row="2" Grid.Column="1" Margin="0,3" IsReadOnly="True" Tag="F10" PreviewKeyDown="OnHotkeyKey"/>
+                        <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" Text="Vybrat oblast titulků:"/>
+                        <TextBox x:Name="HkRegion" Grid.Row="3" Grid.Column="1" Margin="0,3" IsReadOnly="True" Tag="F11" PreviewKeyDown="OnHotkeyKey"/>
+                        <TextBlock Grid.Row="4" Style="{StaticResource Lbl}" Text="Otevřít okno nastavení:"/>
+                        <TextBox x:Name="HkSettings" Grid.Row="4" Grid.Column="1" Margin="0,3" IsReadOnly="True" Tag="F12" PreviewKeyDown="OnHotkeyKey"/>
+                        <TextBlock Grid.Row="5" Style="{StaticResource Lbl}" Text="Přepnout: konverzace ↔ vše na obrazovce:"/>
+                        <TextBox x:Name="HkScope" Grid.Row="5" Grid.Column="1" Margin="0,3" IsReadOnly="True" Tag="F7" PreviewKeyDown="OnHotkeyKey"/>
+                        <TextBlock Grid.Row="6" Style="{StaticResource Lbl}" Text="Okno historie titulků:"/>
+                        <TextBox x:Name="HkHistory" Grid.Row="6" Grid.Column="1" Margin="0,3" IsReadOnly="True" Tag="F6" PreviewKeyDown="OnHotkeyKey"/>
+                        <TextBlock Grid.Row="7" Style="{StaticResource Lbl}" Text="Špatný překlad (opravit poslední):"/>
+                        <TextBox x:Name="HkCorrect" Grid.Row="7" Grid.Column="1" Margin="0,3" IsReadOnly="True" Tag="F5" PreviewKeyDown="OnHotkeyKey"/>
+                    </Grid>
+                    <TextBlock x:Name="HotkeyInfo" Margin="0,10" TextWrapping="Wrap" Foreground="{StaticResource Muted}"/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <!-- POKROČILÉ -->
+            <TabItem x:Name="TabAdvanced" Header="⚙  Pokročilé">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="900" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="Pokročilé"/>
+                    <CheckBox x:Name="CbAdaptive" Content="Adaptivní interval – při dlouhém klidu (žádný titulek) zpomalit čtení a šetřit CPU"/>
+                    <CheckBox x:Name="CbVerbose" Content="Podrobný log (každé čtení OCR, rozhodnutí o duplicitách, prodleva do zobrazení) – užitečné při ladění"/>
+                    <CheckBox x:Name="CbStripJunk" Content="Odstraňovat typické OCR smetí (samostatné symboly, „oo:c“ apod.) před překladem"/>
+                    <Grid Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="330"/><ColumnDefinition Width="110"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/><RowDefinition/></Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource Lbl}" Text="Velikost cache překladů (vět):"/>
+                        <TextBox x:Name="TbCacheMax" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Column="2" Margin="10,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Text="použije se po restartu aplikace"/>
+                        <TextBlock Grid.Row="1" Style="{StaticResource Lbl}" Text="Časový limit požadavku na překlad (s):"/>
+                        <TextBox x:Name="TbHttpTimeout" Grid.Row="1" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="2" Style="{StaticResource Lbl}" Text="Opakování po síťové chybě / chybě serveru (0–3):"/>
+                        <TextBox x:Name="TbRetry" Grid.Row="2" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="2" Grid.Column="2" Margin="10,0" VerticalAlignment="Center" Foreground="{StaticResource Muted}" Text="chyba klíče / limitu se neopakuje; překladač se nikdy nepřepíná sám"/>
+                        <TextBlock Grid.Row="3" Style="{StaticResource Lbl}" Text="Vše na obrazovce: velikost písma (× výšky řádku):"/>
+                        <TextBox x:Name="TbScreenScale" Grid.Row="3" Grid.Column="1" Margin="0,3"/>
+                        <TextBlock Grid.Row="4" Style="{StaticResource Lbl}" Text="Vše na obrazovce: min. interval OCR (ms):"/>
+                        <TextBox x:Name="TbScreenInterval" Grid.Row="4" Grid.Column="1" Margin="0,3"/>
+                    </Grid>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0"><TextBlock Style="{StaticResource Lbl}" Text="Max. délka titulku (znaků, 0 = bez limitu):"/><TextBox x:Name="TbMaxChars" Width="70"/></StackPanel>
+                    <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Text="Delší čtení a texty plné čísel (panely s FPS, statistikami) se berou jako UI, ne titulek, a nepřekládají se."/>
+                    <TextBlock FontWeight="SemiBold" Margin="0,12,0,2" Text="Ignorovat řádky obsahující (oddělte středníkem), např. Unknown; Call; Snapmatic:"/>
+                    <TextBox x:Name="TbIgnore" Margin="0,2"/>
+                    <TextBlock Foreground="{StaticResource Muted}" Margin="0,2,0,0" TextWrapping="Wrap" Text="Hodí se pro UI texty, které nechcete překládat (telefon, hodiny, názvy menu). Platí pro oba režimy."/>
+                    <Separator Margin="0,14,0,10"/>
+                    <TextBlock FontWeight="SemiBold" Text="Spouštění"/>
+                    <CheckBox x:Name="CbAutostart" Content="Spouštět Overlingo s Windows (minimalizované)" Margin="0,4"/>
+                    <CheckBox x:Name="CbStartTranslate" Content="Po spuštění aplikace rovnou spustit překlad"/>
+                    <CheckBox x:Name="CbAutoProgram" Content="Spustit překlad automaticky, když se objeví vybraný program (zdroj „Program“)"/>
+                    <Separator Margin="0,14,0,10"/>
+                    <TextBlock FontWeight="SemiBold" Text="OBS Browser Source (překlad do streamu bez zachytávání obrazovky)"/>
+                    <CheckBox x:Name="CbWeb" Content="Zapnout lokální server (jen tento počítač, 127.0.0.1)" Margin="0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,2"><TextBlock Style="{StaticResource Lbl}" Text="Port:"/><TextBox x:Name="TbWebPort" Width="80"/>
+                        <Button Content="Kopírovat adresu" Margin="8,0,0,0" Click="OnCopyWebUrl"/></StackPanel>
+                    <TextBlock x:Name="WebUrlText" Foreground="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,0"/>
+                    <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Text="V OBS: Zdroje → + → Prohlížeč, vložte adresu, šířka 1920 a výška 1080. Styl lze měnit parametry, např. ?size=44&amp;color=ffff00&amp;english=1"/>
+                    <Separator Margin="0,14,0,10"/>
+                    <TextBlock FontWeight="SemiBold" Text="Profily nastavení"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,4">
+                        <ComboBox x:Name="CbProfile" IsEditable="True" Width="240"/>
+                        <Button Content="Uložit" Margin="8,0,0,0" Click="OnProfileSave"/>
+                        <Button Content="Načíst" Click="OnProfileLoad"/>
+                        <Button Content="Smazat" Click="OnProfileDelete"/>
+                    </StackPanel>
+                    <TextBlock Foreground="{StaticResource Muted}" TextWrapping="Wrap" Text="Profil uloží vše kromě API klíčů – např. jiné nastavení pro hru a pro film."/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            <!-- DIAGNOSTIKA -->
+            <TabItem x:Name="TabDiag" Header="🔧  Diagnostika">
+                <DockPanel Margin="32,26,32,26">
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource H1}" Text="Diagnostika"/>
+                    <WrapPanel DockPanel.Dock="Top">
+                        <Button x:Name="BtnDiag" Content="Spustit diagnostiku" Click="OnRunDiagnostics" FontWeight="SemiBold"/>
+                        <Button Content="Uložit report do souboru" Click="OnSaveDiagnostics"/>
+                        <Button Content="Exportovat diagnostiku (zip)" Click="OnExportZip"/>
+                        <Button Content="Historie titulků" Click="OnShowHistory"/>
+                    </WrapPanel>
+                    <TextBox x:Name="DiagBox" IsReadOnly="True" FontFamily="Consolas" FontSize="12" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+                </DockPanel>
+            </TabItem>
+            <!-- LOGY -->
+            <TabItem x:Name="TabLogs" Header="📜  Logy">
+                <DockPanel Margin="32,26,32,26">
+                    <TextBlock DockPanel.Dock="Top" Style="{StaticResource H1}" Text="Logy"/>
+                    <WrapPanel DockPanel.Dock="Top">
+                        <Button Content="Vymazat okno logu" Click="OnClearLog"/>
+                        <Button Content="Otevřít složku s logy" Click="OnOpenLogDir"/>
+                        <CheckBox x:Name="CbLogFile" Content="Zapisovat log do souboru" IsChecked="True" Margin="10,5,0,0" Click="OnLogFileToggle"/>
+                    </WrapPanel>
+                    <TextBox x:Name="LogBox" IsReadOnly="True" FontFamily="Consolas" FontSize="12" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"/>
+                </DockPanel>
+            </TabItem>
+            <!-- TEST -->
+            <TabItem x:Name="TabTest" Header="🧪  Test">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="32,26,32,26" MaxWidth="900" HorizontalAlignment="Left">
+                    <TextBlock Style="{StaticResource H1}" Text="Test"/>
+                    <TextBlock TextWrapping="Wrap" Text="Měření přesnosti OCR na přibalených testovacích obrázcích a ruční test překladu." Margin="0,0,0,8"/>
+                    <WrapPanel>
+                        <Button Content="Přesnost OCR na přibalených testovacích obrázcích" Click="OnOcrAccuracy"/>
+                    </WrapPanel>
+                                        <TextBlock FontWeight="SemiBold" Text="Ruční test překladu (vybraný překladač):"/>
+                    <TextBox x:Name="TbManual" Text="Hey, keep your voice down. They're still watching the street." Margin="0,4" TextWrapping="Wrap"/>
+                    <Button Content="Přeložit" Click="OnManualTranslate" HorizontalAlignment="Left"/>
+                    <TextBox x:Name="ManualResult" IsReadOnly="True" TextWrapping="Wrap" MinHeight="46"/>
+                    <TextBox x:Name="TestLog" IsReadOnly="True" FontFamily="Consolas" FontSize="12" TextWrapping="NoWrap" HorizontalScrollBarVisibility="Auto" MinHeight="200" Margin="0,10,0,0"/>
+                </StackPanel></ScrollViewer>
+            </TabItem>
+            </TabControl>
+            <!-- logo v levém sloupci -->
+            <StackPanel HorizontalAlignment="Left" VerticalAlignment="Top" Width="230" Margin="0,24,0,0" IsHitTestVisible="False">
+                <TextBlock Margin="26,0,0,0" FontSize="22" FontWeight="Black" Foreground="{StaticResource Accent}" Text="OVERLINGO"/>
+                <TextBlock Margin="26,0,0,0" FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource Muted}" Text="LIVE SCREEN TRANSLATOR"/>
+            </StackPanel>
+        </Grid>
+    </DockPanel>
+</Window>

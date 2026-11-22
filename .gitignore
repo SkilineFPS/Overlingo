@@ -1,0 +1,7 @@
+bin/
+obj/
+publish/
+*.zip
+installer/Output/
+.vs/
+*.user

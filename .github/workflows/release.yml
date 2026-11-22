@@ -1,0 +1,59 @@
+name: Build & Release
+
+on:
+  push:
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Testy
+        run: dotnet run --project Overlingo.Tests -c Release
+
+      - name: Verze
+        id: ver
+        shell: pwsh
+        run: |
+          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.TrimStart('v') } else { '0.0.0-dev' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Publish (self-contained, win-x64)
+        run: dotnet publish Overlingo.App/Overlingo.App.csproj -c Release -r win-x64 --self-contained true -p:Version=${{ steps.ver.outputs.version }} -o publish
+
+      - name: ZIP (přenosná verze)
+        shell: pwsh
+        run: Compress-Archive -Path publish\* -DestinationPath Overlingo-${{ steps.ver.outputs.version }}-win-x64.zip
+
+      - name: Instalátor (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=${{ steps.ver.outputs.version }}" installer\overlingo.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Overlingo-${{ steps.ver.outputs.version }}
+          path: |
+            Overlingo-*.zip
+            installer/Output/*.exe
+
+      - name: GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            Overlingo-*.zip
+            installer/Output/*.exe
+          generate_release_notes: true

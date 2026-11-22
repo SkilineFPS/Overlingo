@@ -1,0 +1,15 @@
+<Window x:Class="Overlingo.App.RegionSelectorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Výběr oblasti titulků" WindowStyle="None" ResizeMode="NoResize" Background="#FF101010"
+        WindowStartupLocation="CenterScreen" ShowInTaskbar="False" Topmost="True">
+    <Grid x:Name="Root">
+        <Image x:Name="Pic" Stretch="Uniform"/>
+        <Canvas x:Name="Cv" Background="Transparent" Cursor="Cross">
+            <Rectangle x:Name="Sel" Stroke="#FFFFC107" StrokeThickness="2" Fill="#33FFC107" Visibility="Collapsed"/>
+        </Canvas>
+        <Border Background="#CC000000" VerticalAlignment="Top" HorizontalAlignment="Center" Padding="14,8" Margin="0,12,0,0" CornerRadius="8" IsHitTestVisible="False">
+            <TextBlock x:Name="Hint" Foreground="White" FontSize="16" Text="Táhněte myší přes oblast, kde se ve hře zobrazují titulky.   Enter = potvrdit   Esc = zrušit"/>
+        </Border>
+    </Grid>
+</Window>
