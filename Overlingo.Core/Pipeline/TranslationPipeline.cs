@@ -15,6 +15,8 @@ public sealed class PipelineStats
     public double SourceFps;
     public string? SourceError;
     public double AvgOcrMs;
+    /// <summary>Měření prodlev (ms): cover, ocr, translate, total.</summary>
+    public LatencyTracker Latency { get; } = new();
 }
 
 /// <summary>
@@ -30,6 +32,8 @@ public sealed class TranslationPipeline
     ICaptureSource? _source;
     CancellationTokenSource? _cts;
     Task? _loop, _worker;
+    string _prefetched = "", _announced = "";
+    bool _announcedActive;
     Channel<string>? _queue;
     LightSignature? _lastSig;
     bool _forceOcr;
@@ -58,6 +62,12 @@ public sealed class TranslationPipeline
     public event Action? SubtitleCleared;
     /// <summary>Při každém čtení, které v oblasti našlo text (i beze změny) – overlay tak pozná, že původní titulek stále visí.</summary>
     public event Action? SubtitleVisible;
+    /// <summary>Při prvním čtení nového (ještě nepotvrzeného) originálního titulku: poloha jeho textu v celém snímku.
+    /// Overlay podle ní hned přizpůsobí zakrytí novému originálu (velikost, poloha) a smaže starý překlad, dokud nedorazí nový.
+    /// Spouští se až po přečtení použitelného textu, takže jasné předměty ve scéně falešný box nevyvolají.</summary>
+    public event Action<RegionF>? OriginalSeen;
+    /// <summary>Text, který ohlásil OriginalSeen, před potvrzením zmizel (nebo se ukázal jako šum) – prázdné zakrytí se má zrušit.</summary>
+    public event Action? OriginalGone;
 
     public TranslationPipeline(IOcrEngine ocr, TranslationService svc, Func<AppSettings> settings)
     {
@@ -81,7 +91,7 @@ public sealed class TranslationPipeline
         await source.StartAsync();
         _cts = new CancellationTokenSource();
         _queue = Channel.CreateBounded<string>(new BoundedChannelOptions(4) { FullMode = BoundedChannelFullMode.DropOldest });
-        _tracker.Reset(); _lastSig = null; _forceOcr = true; _lastBox = null;
+        _tracker.Reset(); _lastSig = null; _forceOcr = true; _lastBox = null; _prefetched = ""; _announced = ""; _announcedActive = false;
         var ct = _cts.Token;
         _worker = Task.Run(() => WorkerAsync(_queue.Reader, ct));
         _loop = Task.Run(() => LoopAsync(ct));
@@ -108,6 +118,7 @@ public sealed class TranslationPipeline
             cts.Dispose();
         }
         _loop = _worker = null;
+        AnnounceGone();
         if (_source != null) { try { await _source.DisposeAsync(); } catch (Exception e) { AppLog.Warn($"Zavření zdroje: {e.Message}"); } _source = null; }
     }
 
@@ -154,6 +165,7 @@ public sealed class TranslationPipeline
         {
             Stats.Skipped++; _idleTicks++;
             _lastSig = null;
+            AnnounceGone();
             var r = _tracker.Observe(null);
             if (r.Event == TrackerEvent.Cleared) { _clearedUtc = DateTime.UtcNow; SubtitleCleared?.Invoke(); }
             return;
@@ -170,6 +182,7 @@ public sealed class TranslationPipeline
         sw.Stop();
         Stats.OcrRuns++; Stats.LastOcrMs = (int)sw.ElapsedMilliseconds;
         Stats.AvgOcrMs = Stats.AvgOcrMs == 0 ? Stats.LastOcrMs : Stats.AvgOcrMs * 0.9 + Stats.LastOcrMs * 0.1;
+        Stats.Latency.Record("ocr", Stats.LastOcrMs);
         var cleaned = s.StripJunkTokens ? TextTools.StripJunk(res.Text) : res.Text;
         if (TextTools.ContainsIgnored(cleaned, s.IgnoreContains)) cleaned = "";
         if (TextTools.LooksLikeUiNoise(cleaned, s.MaxSubtitleChars)) { Stats.UiNoise++; cleaned = ""; }
@@ -194,6 +207,15 @@ public sealed class TranslationPipeline
         if (s.VerboseLog)
             AppLog.Info($"OCR {res.Method} {Stats.LastOcrMs} ms | raw=\"{res.Text}\" | clean=\"{cleaned}\" | → {ev.Event}{(_tracker.Suppressed > supBefore ? Loc.T(" (duplicita potlačena)") : "")}{(_tracker.Pending ? Loc.T(" [čeká na potvrzení]") : "")}");
         Stats.Suppressed = _tracker.Suppressed;
+        {   // první čtení nového originálu → overlay hned přizpůsobí zakrytí (viz OriginalSeen)
+            var seen = TextTools.Normalize(cleaned);
+            if (!TextTools.IsPlausible(seen, s.MinLetters)) AnnounceGone();
+            else if (_tracker.Pending && _lastBox != null && IsNewOriginal(seen))
+            {
+                _announced = seen; _announcedActive = true;
+                OriginalSeen?.Invoke(new RegionF { X = _lastBox.X, Y = _lastBox.Y, W = _lastBox.W, H = _lastBox.H });
+            }
+        }
         if ((ev.Event == TrackerEvent.NewSubtitle || ev.Event == TrackerEvent.Updated) && ev.Text != null)
         {
             Stats.Subtitles++; Stats.LastEnglish = ev.Text;
@@ -206,9 +228,37 @@ public sealed class TranslationPipeline
         else if (ev.Event == TrackerEvent.Cleared) { _clearedUtc = DateTime.UtcNow; SubtitleCleared?.Invoke(); }
         else if (_tracker.Pending)
         {
+            // překlad „na zkoušku“: výsledek skončí v cache, takže potvrzení druhým čtením už nečeká na síť
+            if (s.SpeculativeTranslate)
+            {
+                var norm = TextTools.Normalize(cleaned);
+                if (norm.Length <= s.MaxSubtitleChars && TextTools.IsPlausible(norm, s.MinLetters) && TextTools.Similarity(norm, _prefetched) < 0.9)
+                {
+                    _prefetched = norm;
+                    var token = ct;
+                    _ = Task.Run(async () => { try { await _svc.PrefetchAsync(norm, token).ConfigureAwait(false); } catch { } });
+                }
+            }
             // dokud se čeká na stabilitu, vynuť další OCR (obraz se nemusí měnit)
             _forceOcr = true;
         }
+    }
+
+    void AnnounceGone()
+    {
+        if (!_announcedActive) return;
+        _announcedActive = false; _announced = "";
+        OriginalGone?.Invoke();
+    }
+
+    /// <summary>Je přečtený text opravdu NOVÝ titulek (ne to, co se už zobrazuje, ani jeho delší/kratší čtení)?</summary>
+    bool IsNewOriginal(string seen)
+    {
+        if (TextTools.Similarity(seen, _announced) >= 0.8) return false;
+        var live = _tracker.LastEmitted;
+        if (live == null) return true;
+        if (TextTools.Similarity(seen, live) >= 0.8) return false;
+        return TextTools.ContainmentScore(live, seen) < 0.85 && TextTools.ContainmentScore(seen, live) < 0.85;
     }
 
     async Task WorkerAsync(ChannelReader<string> reader, CancellationToken ct)
@@ -221,6 +271,7 @@ public sealed class TranslationPipeline
                 {
                     var r = await _svc.TranslateAsync(en, ct).ConfigureAwait(false);
                     Stats.LastCzech = r.Text;
+                    if (!r.FromCache) Stats.Latency.Record("translate", r.Ms);
                     // titulek mohl zmizet dřív, než dorazil (pomalý) překlad → overlay ho nesmí nechat viset
                     bool gone = _emitted.TryRemove(en, out var em) && _clearedUtc >= em;
                     _boxes.TryRemove(en, out var box);

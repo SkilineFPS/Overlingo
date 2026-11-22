@@ -27,6 +27,11 @@ public sealed class AppController
     public string? LastStartError { get; private set; }
     public string SourceDescription => ActiveSource?.Description ?? "(zdroj neběží)";
     HttpClient _http = TranslatorFactory.NewHttp();
+    SpeechService? _speech;
+    string _speechSig = "";
+    /// <summary>Hlasité čtení překladů (hlas Windows). Null, když je vypnuté.</summary>
+    public SpeechService? Speech => _speech;
+    public event Action<string>? SpeechError;
     readonly WindowsOcrEngine? _ocr;
     TesseractOcr? _tess;
     public string TesseractInfo => _tess != null ? $"Tesseract nalezen: {_tess.Path} (použije se jen při slabém čtení)" : "Tesseract nenalezen – volitelné, aplikace funguje i bez něj.";
@@ -35,6 +40,7 @@ public sealed class AppController
     DateTime _lastRestart = DateTime.MinValue;
     bool _starting;
     RegionF? _lastTextBox;
+    (int Cx, int Cy, double W, double H)? _coverKey;
     public SubtitleHistory History { get; } = new();
     public CorrectionStore Corrections { get; } = new(Path.Combine(AppSettings.DefaultDir, "corrections.json"));
     public OverlayWebServer Web { get; } = new();
@@ -96,10 +102,22 @@ public sealed class AppController
             AppLog.Info($"{Loc.T("ZOBRAZENO")}{(r.Replace ? Loc.T(" (nahrazuje předchozí)") : "")}: {Loc.T("originál")}: {r.English}  →  {Loc.T("překlad")}: {r.Czech}  [{Loc.T(r.Provider)}, {(r.FromCache ? "cache" : r.TranslateMs + " ms")}; {Loc.T("od prvního spatření textu do zobrazení")} {delay} ms]"
                 + (r.Box != null ? Loc.T($" [poloha textu: střed {r.Box.X + r.Box.W / 2:0.000}, šířka {r.Box.W:0.000}, výška {r.Box.H:0.000}, y {r.Box.Y:0.000}]") : Loc.T(" [poloha textu neznámá]")));
             if (r.Box != null) { _lastTextBox = r.Box; if ((Settings.OverlayAutoAbove || Settings.OverlayCoverOriginal) && !Overlay.EditMode) PlaceOverlayFromSettings(false); }
+            if (r.DetectedUtc != default) Pipeline.Stats.Latency.Record("total", (DateTime.UtcNow - r.DetectedUtc).TotalMilliseconds);
             Overlay.AddSubtitle(r.English, r.Czech, r.Replace, r.SourceGone);
+            _speech?.Speak(r.Czech, r.Replace);
             History.Add(r.English, r.Czech, r.Replace);
             if (Settings.WebEnabled) { _webGen++; Web.Update(r.English, r.Czech, true); }
         });
+        // nový originál přečten poprvé (ještě před potvrzením a překladem): zakrytí se hned přizpůsobí jeho velikosti a poloze
+        // a starý překlad se smaže, aby se přes nový originál nezobrazoval cizí text
+        Pipeline.OriginalSeen += box => Application.Current.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Send, new Action(() =>
+        {
+            if (Settings.Scope == TranslationScope.FullScreen || !Settings.OverlayCoverOriginal || Overlay.EditMode || Overlay.Visibility != Visibility.Visible) return;
+            _lastTextBox = box;
+            PlaceOverlayFromSettings(false);
+            Overlay.BeginCover();
+        }));
+        Pipeline.OriginalGone += () => Application.Current.Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Send, new Action(Overlay.EndCover));
         Pipeline.SubtitleVisible += () => Application.Current.Dispatcher.BeginInvoke(Overlay.MarkVisible);
         Pipeline.TranslationFailed += f => Application.Current.Dispatcher.BeginInvoke(() =>
             Overlay.ShowError($"Překlad se nezdařil: {Short(f.Error)}"));
@@ -205,6 +223,7 @@ public sealed class AppController
         var g = GameRectPx();
         Settings.OverlayLeft = g.L + (int)(r.Overlay.X * g.W); Settings.OverlayTop = g.T + (int)(r.Overlay.Y * g.H);
         Settings.OverlayWidth = Math.Max(50, (int)(r.Overlay.W * g.W)); Settings.OverlayHeight = Math.Max(30, (int)(r.Overlay.H * g.H));
+        _coverKey = null;
         Overlay.ApplySettings(Settings);
         PlaceOverlayFromSettings(false);
         Pipeline.ApplySettings();
@@ -223,14 +242,20 @@ public sealed class AppController
 
     public void PlaceOverlayFromSettings(bool forceDefault)
     {
+        if (Overlay.EditMode || forceDefault) _coverKey = null;
         if (Settings.OverlayCoverOriginal && !Overlay.EditMode && !forceDefault)
         {
-            // přímo přes originální titulek: okno vystředěné na jeho polohu, box je aspoň tak velký jako originál (+ rezerva)
+            // přímo přes originální titulek: okno vystředěné na jeho polohu, box je přesně tak velký jako originál (+ rezerva úměrná výšce písma)
             // bez skutečně změřeného originálu (např. ukázka) box nic nevynucuje a jen obepne text
             var t = TargetRect(); var r = _lastTextBox ?? Settings.EffectiveRegion;
             double wpx = r.W * t.Width, hpx = r.H * t.Height;
             int cx = t.Left + (int)((r.X + r.W / 2) * t.Width), cy = t.Top + (int)((r.Y + r.H / 2) * t.Height);
-            double minW = _lastTextBox != null ? Math.Min(wpx + 32, t.Width * 0.7) : 0, minH = _lastTextBox != null ? Math.Min(hpx + 16, t.Height * 0.15) : 0;
+            double padW = Math.Max(24, hpx * 0.9), padH = Math.Max(10, hpx * 0.4);
+            double minW = _lastTextBox != null ? Math.Min(wpx + padW, t.Width * 0.7) : 0, minH = _lastTextBox != null ? Math.Min(hpx + padH, t.Height * 0.15) : 0;
+            // hystereze: drobné změny polohy / velikosti (šum OCR, rozdíl mezi detektorem a OCR) box nepřesouvají, aby neplaval
+            if (_coverKey is { } k0 && Math.Abs(k0.Cx - cx) <= 5 && Math.Abs(k0.Cy - cy) <= 4
+                && Math.Abs(k0.W - minW) <= Math.Max(8, k0.W * 0.06) && Math.Abs(k0.H - minH) <= Math.Max(6, k0.H * 0.10)) return;
+            _coverKey = (cx, cy, minW, minH);
             int w = (int)Math.Min(t.Width * 0.9, Math.Max(minW * 1.35, t.Width * 0.5));   // okno je průhledné, box uvnitř jen obepíná text
             w = (int)Math.Min(w, 2.0 * Math.Min(cx - t.Left, t.Right - cx));
             w = Math.Max(w, (int)Math.Min(minW, t.Width));
@@ -242,6 +267,7 @@ public sealed class AppController
         }
         else if (Settings.OverlayAutoAbove && !Overlay.EditMode && !forceDefault)
         {
+            _coverKey = null;
             Overlay.SetCover(false, 0, 0);
             // těsně NAD skutečným originálním titulkem (poloha světlého textu), vystředěno na něj;
             // než se text poprvé najde, použije se vybraná oblast
@@ -255,10 +281,46 @@ public sealed class AppController
         }
         else if (forceDefault || Settings.OverlayWidth <= 0 || Settings.OverlayHeight <= 0)
         {
+            _coverKey = null;
             var d = Overlay.DefaultPlacement(TargetRect());
             Settings.OverlayLeft = d.X; Settings.OverlayTop = d.Y; Settings.OverlayWidth = d.W; Settings.OverlayHeight = d.H;
         }
         Overlay.PlacePx(Settings.OverlayLeft, Settings.OverlayTop, Settings.OverlayWidth, Settings.OverlayHeight);
+    }
+
+    /// <summary>Zdroj hlasu: hlas nainstalovaný ve Windows.</summary>
+    public ISpeechSynth BuildSynth(AppSettings s) => new WindowsSpeechSynth(s.SpeechWindowsVoice, s.TargetLang);
+
+    void ApplySpeech(AppSettings s)
+    {
+        bool on = s.SpeechEnabled;
+        var sig = on ? $"{s.SpeechWindowsVoice}|{s.TargetLang}|{s.SpeechRate}|{s.SpeechMaxQueue}" : "";
+        if (sig != _speechSig)
+        {
+            _speech?.Dispose(); _speech = null; _speechSig = sig;
+            if (on)
+            {
+                _speech = new SpeechService(BuildSynth(s), new WavPlayer(), s.SpeechMaxQueue, s.SpeechRate);
+                _speech.Error += m => { AppLog.Warn(m); Application.Current.Dispatcher.BeginInvoke(() => { Overlay.ShowError(m); SpeechError?.Invoke(m); }); };
+            }
+        }
+        if (_speech != null) _speech.Volume = s.SpeechVolume;
+    }
+
+    /// <summary>Zapne/vypne čtení nahlas (zkratka). Vrací nový stav.</summary>
+    public bool ToggleSpeech()
+    {
+        Settings.SpeechEnabled = !Settings.SpeechEnabled;
+        ApplySpeech(Settings); Settings.Save();
+        return Settings.SpeechEnabled;
+    }
+
+    /// <summary>Hlasitost hlasu změněná za chodu (posuvník, zkratky) – projeví se hned a uloží se.</summary>
+    public void SetSpeechVolume(double v, bool save = true)
+    {
+        Settings.SpeechVolume = Math.Round(Math.Clamp(v, 0, 1.5), 2);
+        if (_speech != null) _speech.Volume = Settings.SpeechVolume;
+        if (save) Settings.Save();
     }
 
     public void SetSettings(AppSettings s)
@@ -271,6 +333,8 @@ public sealed class AppController
         Service.RetryCount = s.RetryCount;
         Service.LangTag = Languages.PairTag(s.SourceLang, s.TargetLang);
         Service.Glossary = Glossary.Parse(s.Glossary);
+        _coverKey = null;
+        ApplySpeech(s);
         Overlay.ApplySettings(s); ScreenOverlay.ApplySettings(s);
         PlaceOverlayFromSettings(false); PlaceScreenOverlay();
         Pipeline.ApplySettings(); ScreenPipeline.ApplySettings();
@@ -460,6 +524,7 @@ public sealed class AppController
         try { await Pipeline.StopAsync(); await ScreenPipeline.StopAsync(); } catch { }
         SaveCache();
         Web.Dispose();
+        _speech?.Dispose();
         Settings.Save();
     }
 }

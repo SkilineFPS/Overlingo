@@ -54,6 +54,7 @@ public partial class ScreenOverlayWindow : Window
         Brush fg; try { fg = new SolidColorBrush((Color)ColorConverter.ConvertFromString(_s.TextColor)); } catch { fg = Brushes.White; }
         byte alpha = 255;   // musí úplně zakrýt původní text (neprůhledná černá)
         var bg = new SolidColorBrush(Color.FromArgb(alpha, 0, 0, 0));
+        double ppd = 1.0; try { ppd = VisualTreeHelper.GetDpi(this).PixelsPerDip; } catch { }
         foreach (var l in _lines)
         {
             double left = l.X * W, top = l.Y * H, w = l.W * W, h = l.H * H;
@@ -61,7 +62,11 @@ public partial class ScreenOverlayWindow : Window
             double padX = Math.Max(6, h * 0.35), padY = Math.Max(3, h * 0.2);
             left -= padX; top -= padY; w += 2 * padX; h += 2 * padY;
             double fs = Math.Clamp(h * _s.ScreenFontScale, 11, 48);
-            var tb = new TextBlock { Text = l.Czech, FontFamily = fam, FontSize = fs, Foreground = fg, TextWrapping = TextWrapping.Wrap, MaxWidth = Math.Max(w * 1.35, 220) };
+            // překlad se vejde do boxu zmenšením písma (a zalomením), box se nezvětšuje daleko za originál
+            double maxTextW = Math.Max(w * 1.15, 140) - 8;
+            double maxTextH = Math.Max(h * 1.7, 22) - 2;
+            fs = TextFit.Fit(l.Czech, fam, FontWeights.Normal, fs, Math.Max(9, fs * 0.6), maxTextW, maxTextH, ppd);
+            var tb = new TextBlock { Text = l.Czech, FontFamily = fam, FontSize = fs, Foreground = fg, TextWrapping = TextWrapping.Wrap, MaxWidth = maxTextW };
             var b = new Border { Background = bg, CornerRadius = new CornerRadius(3), Padding = new Thickness(4, 1, 4, 1), MinWidth = w, MinHeight = h, Child = tb };
             Canvas.SetLeft(b, Math.Max(0, Math.Min(left, W - 40))); Canvas.SetTop(b, Math.Max(0, Math.Min(top, H - h)));
             Cv.Children.Add(b);

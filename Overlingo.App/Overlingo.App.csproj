@@ -18,6 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <Resource Include="Assets\overlingo.ico" />
+    <Resource Include="Assets\overlingo-1024.png" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\sample-placement.jpg" CopyToOutputDirectory="PreserveNewest" />

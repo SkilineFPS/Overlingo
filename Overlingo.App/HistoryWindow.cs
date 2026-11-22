@@ -9,7 +9,7 @@ internal sealed class HistoryWindow : Window
 {
     readonly SubtitleHistory _h;
     readonly TextBox _box = new() { IsReadOnly = true, TextWrapping = TextWrapping.Wrap, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, FontSize = 14 };
-    readonly CheckBox _orig = new() { Content = "Zobrazit originál", IsChecked = true, Margin = new Thickness(8) };
+    readonly CheckBox _orig = new() { Content = "Zobrazit originál (v SRT jako druhý řádek)", IsChecked = true, Margin = new Thickness(8) };
 
     public HistoryWindow(SubtitleHistory h)
     {
@@ -19,11 +19,22 @@ internal sealed class HistoryWindow : Window
         _box.Background = Background; _box.Foreground = System.Windows.Media.Brushes.White; _box.BorderThickness = new Thickness(0);
         var copy = new Button { Content = "Kopírovat vše", Margin = new Thickness(8) };
         var clear = new Button { Content = "Vymazat", Margin = new Thickness(0, 8, 8, 8) };
+        var srt = new Button { Content = "Uložit jako SRT…", Margin = new Thickness(0, 8, 8, 8) };
+        srt.Click += (_, _) =>
+        {
+            try
+            {
+                var dlg = new Microsoft.Win32.SaveFileDialog { Filter = "SRT titulky (*.srt)|*.srt", FileName = $"overlingo-{DateTime.Now:yyyyMMdd-HHmm}.srt" };
+                if (dlg.ShowDialog(this) != true) return;
+                System.IO.File.WriteAllText(dlg.FileName, _h.ToSrt(_orig.IsChecked == true), new System.Text.UTF8Encoding(true));
+            }
+            catch (Exception ex) { MessageBox.Show(Loc.T("Uložení se nezdařilo: ") + ex.Message, "Overlingo"); }
+        };
         copy.Click += (_, _) => { try { Clipboard.SetText(_h.ToText(_orig.IsChecked == true)); } catch { } };
         clear.Click += (_, _) => _h.Clear();
         _orig.Checked += (_, _) => Refresh(); _orig.Unchecked += (_, _) => Refresh();
         var bar = new StackPanel { Orientation = Orientation.Horizontal };
-        bar.Children.Add(copy); bar.Children.Add(clear); bar.Children.Add(_orig);
+        bar.Children.Add(copy); bar.Children.Add(srt); bar.Children.Add(clear); bar.Children.Add(_orig);
         var dock = new DockPanel(); DockPanel.SetDock(bar, Dock.Top); dock.Children.Add(bar); dock.Children.Add(_box);
         Content = dock;
         Action on = () => Dispatcher.BeginInvoke(new Action(Refresh));

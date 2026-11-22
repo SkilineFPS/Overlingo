@@ -11,6 +11,8 @@
 - **Sources:** a window (pick from a list), a program (by process name, reconnects after the game restarts), the whole screen, or a **capture card** (auto-detected).
 - **Two modes:** *Conversation only* (a subtitle area you mark) and *Everything on screen* (menus, letters, signs).
 - **Overlay:** shows the translation above the original, or on a black box **directly over the original** so it is hidden. Click-through, always on top. A graphical editor sets where subtitles are read and where the translation appears.
+- **Fast and stable:** translation starts right after the first read, near-identical OCR readings reuse the previous translation, and the home screen shows measured delays (cover, OCR, translation, subtitle-to-display).
+- **History export:** save the subtitle history as an `.srt` file (optionally bilingual).
 - **Black bars:** detects the real game image area, so the setup works at any aspect ratio.
 - **35 languages** for subtitles and translation. Per-game **glossary** (names like "Vice City" stay untranslated, or force a fixed translation).
 - **Translators** (you choose; there is no silent switching, errors are shown):
@@ -72,3 +74,10 @@ Beta. The core logic (pipeline, translators, glossary, corrections) is covered b
 - API keys are stored encrypted with Windows DPAPI and are never written to logs.
 - The keyless Google endpoint is unofficial and may be restricted at any time. Check each provider's terms for your use.
 - This is not legal advice. See [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) and [LICENSE](LICENSE).
+
+### Read translations aloud (optional)
+In the **Voice** tab you can turn on reading translated subtitles aloud with a **voice installed in Windows** (free, offline, no account or key; add more voices in Windows Settings → Time & language → Speech). Audio plays on the default Windows output. Toggle with **F4**; change voice volume with a slider or **Ctrl+PageUp / Ctrl+PageDown**. When speech can't keep up, older sentences are skipped and the next ones are spoken faster.
+
+## Support the author
+
+Overlingo is free and will stay free; nothing is locked behind a donation. If it saves you time while gaming, you can support development voluntarily with any amount via [PayPal](https://www.paypal.com/donate/?business=skilinek%40gmail.com&no_recurring=0&item_name=Overlingo+%E2%80%93+support+the+author&currency_code=EUR). There is also a **Support the author** button inside the app. Bug reports and feedback are just as welcome: [open an issue](https://github.com/SkilineFPS/Overlingo/issues).

@@ -228,6 +228,9 @@ T("Lokalizace: výběr jazyka, náhrada a pád zpět na češtinu; en.json pokr�
     Eq("12 ms (average 10 ms, method: Auto)", Loc.T("12 ms (průměr 10 ms, metoda: Auto)"), "hodnota dashboardu");
     Eq("Saved, but these values were invalid and kept their old values: Upscale, Retries", Loc.T("Uloženo, ale tyto hodnoty byly neplatné a zůstaly původní: Zvětšení, Opakování"), "seznam hodnot");
     Eq("Unexpected error:\nboom\n\nDetails are in the Logs tab / in C:\\L", Loc.T("Neočekávaná chyba:\nboom\n\nDetail je v záložce Logy / v C:\\L"), "víceřádkový vzor");
+    Loc.Set("en", dir);
+    Eq("12 ms (95%: 30 ms, last 9 ms, n=40)", Loc.T("12 ms (95 %: 30 ms, poslední 9 ms, n=40)"), "vzor latence");
+    Eq("Could not open the support link: boom", Loc.T("Odkaz na podporu se nepodařilo otevřít: boom"), "vzor podpory");
     Loc.Set("cs", dir); Eq("Uložit", Loc.T("Uložit"), "zpět na cs");
     // každý viditelný text v MainWindow.xaml musí mít anglický překlad
     var xaml = File.ReadAllText(Path.Combine(dir, "..", "MainWindow.xaml"));
@@ -717,6 +720,206 @@ T("Pipeline celé obrazovky: stabilizace, překlad dávkou, zmizení řádků", 
     }
 });
 
+
+Console.WriteLine("== v1.0.1: okamžité zakrytí, cache, latence, SRT");
+T("Pipeline: první čtení nového originálu ohlásí zakrytí (jednou), potvrzený titulek ho znovu neohlásí, další titulek ano", async () =>
+{
+    var src = new ScriptedSource(); src.NextVariant(0);
+    var s = new AppSettings { StableReads = 2, SpeculativeTranslate = false };
+    var ocr = new ScriptedOcr(new[] { "Hello there my old friend", "Hello there my old friend", "Hello there my old friend", "Where have you been all day", "Where have you been all day" });
+    var pl = new TranslationPipeline(ocr, new TranslationService(new EchoTranslator(), new TranslationCache()), () => s) { HeartbeatMs = 0 };
+    var seen = new List<RegionF>(); int gone = 0;
+    pl.OriginalSeen += b => seen.Add(b); pl.OriginalGone += () => gone++;
+    pl.BeginManual(src);
+    await pl.TickAsync(s, default);
+    Eq(1, seen.Count, "1. čtení → ohlášeno"); True(seen[0].W > 0 && seen[0].H > 0, "má polohu");
+    await pl.TickAsync(s, default);
+    await pl.TickAsync(s, default);
+    Eq(1, seen.Count, "potvrzený titulek se neohlašuje znovu");
+    await pl.TickAsync(s, default);
+    Eq(2, seen.Count, "nový titulek → ohlášen");
+    Eq(0, gone, "nic nezmizelo");
+});
+T("Pipeline: delší čtení téhož titulku zakrytí nepřeskupuje; zmizení nepotvrzeného textu zakrytí zruší", async () =>
+{
+    var src = new ScriptedSource(); src.NextVariant(0);
+    var s = new AppSettings { StableReads = 2, SpeculativeTranslate = false };
+    var ocr = new ScriptedOcr(new[] { "Hello there my old friend", "Hello there my old friend", "Hello there my old friend, how are you", "Hello there my old friend, how are you", "Another line to read now", "" });
+    var pl = new TranslationPipeline(ocr, new TranslationService(new EchoTranslator(), new TranslationCache()), () => s) { HeartbeatMs = 0 };
+    int seen = 0, gone = 0; pl.OriginalSeen += _ => seen++; pl.OriginalGone += () => gone++;
+    pl.BeginManual(src);
+    for (int i = 0; i < 4; i++) await pl.TickAsync(s, default);
+    Eq(1, seen, "úplnější čtení téhož titulku není nový originál");
+    await pl.TickAsync(s, default); Eq(2, seen, "jiný titulek");
+    await pl.TickAsync(s, default); Eq(1, gone, "zmizel před potvrzením");
+    await pl.TickAsync(s, default); Eq(1, gone, "ohlášeno jen jednou");
+});
+T("LatencyTracker: průměr, p95, poslední, okno", async () =>
+{
+    var l = new LatencyTracker(10);
+    Eq("-", l.Describe("x"), "prázdné");
+    for (int i = 1; i <= 20; i++) l.Record("x", i * 10);
+    var g = l.Get("x");
+    Eq(10, g.Count, "jen posledních 10"); Eq(200.0, g.Last, "poslední");
+    True(Math.Abs(g.Avg - 155) < 1e-9, "průměr " + g.Avg); True(g.P95 >= 190, "p95 " + g.P95);
+    l.Record("x", -5); l.Record("x", double.NaN); Eq(10, l.Get("x").Count, "neplatné hodnoty se ignorují");
+    await Task.CompletedTask;
+});
+T("SRT: formát, délky do dalšího titulku, dvojjazyčně", async () =>
+{
+    var h = new SubtitleHistory();
+    h.Add("Hello there", "Ahoj");
+    h.Add("Second line", "Druhý řádek");
+    var srt = h.ToSrt();
+    True(srt.StartsWith("1\r\n00:00:00,000 --> 00:00:0"), srt);
+    True(srt.Contains("2\r\n00:00:00,"), srt);
+    True(srt.Contains("Ahoj\r\n") && srt.Contains("Druhý řádek"), srt);
+    True(!srt.Contains("<i>"), "jednojazyčně bez originálu");
+    True(h.ToSrt(true).Contains("<i>Hello there</i>"), "dvojjazyčně");
+    Eq("", new SubtitleHistory().ToSrt(), "prázdná historie");
+    await Task.CompletedTask;
+});
+T("Přibližná cache: věta s jednou OCR chybou se nepřekládá znovu; jiné číslo ano", async () =>
+{
+    var tr = new CountingTranslator(0);
+    var svc = new TranslationService(tr, new TranslationCache());
+    var a = await svc.TranslateAsync("You need to go to the warehouse now", default);
+    var b = await svc.TranslateAsync("You need to go to the warehouse nowx", default);
+    Eq(1, tr.Calls, "druhé čtení z přibližné cache"); True(b.FromCache && b.Text == a.Text, "stejný překlad");
+    Eq(1L, svc.FuzzyHits, "počítadlo");
+    await svc.TranslateAsync("Take 3 of them to the docks tonight", default);
+    await svc.TranslateAsync("Take 5 of them to the docks tonight", default);
+    Eq(3, tr.Calls, "jiné číslo je jiná věta");
+    await svc.TranslateAsync("Go now", default); await svc.TranslateAsync("Go new", default);
+    Eq(5, tr.Calls, "krátké věty se přibližně neshodují");
+});
+T("Překlad „na zkoušku“ a potvrzený překlad téže věty = jediný požadavek", async () =>
+{
+    var tr = new CountingTranslator(250);
+    var svc = new TranslationService(tr, new TranslationCache());
+    var pre = svc.PrefetchAsync("Meet me at the old pier at midnight", default);
+    await Task.Delay(40);
+    var real = await svc.TranslateAsync("Meet me at the old pier at midnight", default);
+    await pre;
+    Eq(1, tr.Calls, "jeden požadavek"); Eq("CS:Meet me at the old pier at midnight", real.Text);
+    var again = await svc.TranslateAsync("Meet me at the old pier at midnight", default);
+    True(again.FromCache, "dál z cache"); Eq(1, tr.Calls, "stále jeden");
+    // chyba při překladu „na zkoušku“ se nehlásí
+    var bad = new TranslationService(new ThrowingTranslator(), new TranslationCache()) { RetryCount = 0 };
+    await bad.PrefetchAsync("This will fail somehow", default);
+});
+T("Pipeline: po prvním přečtení se překlad spustí hned a potvrzený titulek ho znovu nevolá", async () =>
+{
+    var src = new ScriptedSource(); src.NextVariant(0);
+    var tr = new CountingTranslator(120);
+    var svc = new TranslationService(tr, new TranslationCache());
+    var s = new AppSettings { StableReads = 2 };
+    var pl = new TranslationPipeline(new ScriptedOcr(new[] { "Hello there my old friend", "Hello there my old friend" }), svc, () => s) { HeartbeatMs = 0 };
+    var q = pl.BeginManual(src);
+    await pl.TickAsync(s, default);
+    await Task.Delay(60);
+    Eq(1, tr.Calls, "překlad běží už po 1. čtení");
+    await pl.TickAsync(s, default);
+    True(q.TryRead(out var en), "titulek potvrzen");
+    var r = await svc.TranslateAsync(en!, default);
+    Eq(1, tr.Calls, "žádný druhý požadavek");
+    // vypnuto: bez prefetch
+    var tr2 = new CountingTranslator(0);
+    var s2 = new AppSettings { StableReads = 2, SpeculativeTranslate = false };
+    var pl2 = new TranslationPipeline(new ScriptedOcr(new[] { "Hello there my old friend" }), new TranslationService(tr2, new TranslationCache()), () => s2) { HeartbeatMs = 0 };
+    pl2.BeginManual(src);
+    await pl2.TickAsync(s2, default); await Task.Delay(60);
+    Eq(0, tr2.Calls, "bez překladu na zkoušku");
+});
+
+Console.WriteLine("== Hlas");
+byte[] MakeWav(short sample, int n = 2400)
+{
+    var d = new byte[44 + n * 2];
+    Encoding.ASCII.GetBytes("RIFF").CopyTo(d, 0); BitConverter.GetBytes(d.Length - 8).CopyTo(d, 4);
+    Encoding.ASCII.GetBytes("WAVEfmt ").CopyTo(d, 8); BitConverter.GetBytes(16).CopyTo(d, 16);
+    BitConverter.GetBytes((short)1).CopyTo(d, 20); BitConverter.GetBytes((short)1).CopyTo(d, 22);
+    BitConverter.GetBytes(24000).CopyTo(d, 24); BitConverter.GetBytes(48000).CopyTo(d, 28);
+    BitConverter.GetBytes((short)2).CopyTo(d, 32); BitConverter.GetBytes((short)16).CopyTo(d, 34);
+    Encoding.ASCII.GetBytes("data").CopyTo(d, 36); BitConverter.GetBytes(n * 2).CopyTo(d, 40);
+    for (int i = 0; i < n; i++) BitConverter.GetBytes(sample).CopyTo(d, 44 + i * 2);
+    return d;
+}
+T("WavTools: hlasitost a délka", async () =>
+{
+    var w = MakeWav(1000);
+    short At(byte[] d) => BitConverter.ToInt16(d, 44);
+    Eq((short)500, At(WavTools.ScaleVolume(w, 0.5)), "tišeji");
+    Eq((short)1500, At(WavTools.ScaleVolume(w, 1.5)), "hlasitěji");
+    Eq((short)0, At(WavTools.ScaleVolume(w, 0)), "ticho");
+    Eq((short)short.MaxValue, At(WavTools.ScaleVolume(MakeWav(30000), 1.5)), "ořez bez přetečení");
+    Eq((short)1000, At(w), "originál nezměněn");
+    True(Math.Abs(WavTools.DurationSeconds(w) - 0.1) < 0.001, "délka 0,1 s");
+    True(WavTools.LooksLikeWav(w) && !WavTools.LooksLikeWav(new byte[60]), "hlavička");
+    await Task.CompletedTask;
+});
+T("SpeechPlanner: fronta, stáří, rychlost, nahrazení", async () =>
+{
+    var t0 = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+    var p = new SpeechPlanner { MaxQueue = 2, MaxAgeSec = 6 };
+    p.Enqueue("jedna", false, t0); p.Enqueue("dva", false, t0); p.Enqueue("tři", false, t0);
+    Eq(2, p.Pending, "max fronta"); Eq(1, p.Dropped, "zahozena nejstarší");
+    True(p.TryDequeue(t0, 0, out var a), "dequeue"); Eq("dva", a.Text, "první je nejstarší zbylá");
+    True(a.Rate > 1.0, "zpoždění → rychleji (čeká další)");
+    p.Enqueue("opravená", true, t0); True(p.TryDequeue(t0, 0, out var b), "dq"); Eq("opravená", b.Text, "nahrazení čekající věty");
+    Eq(1.0, b.Rate, "nic nečeká → běžná rychlost");
+    p.Enqueue("opakování", true, t0); Eq(0, p.Pending, "nahrazení bez čekající věty se nečte");
+    p.Enqueue("stará", false, t0); True(!p.TryDequeue(t0.AddSeconds(10), 0, out _), "stará věta se nečte"); Eq(0, p.Pending, "vyprázdněno");
+    var cap = new SpeechPlanner { MaxQueue = 5, BaseRate = 1.0, MaxRate = 1.5 };
+    for (int i = 0; i < 5; i++) cap.Enqueue("x" + i, false, t0);
+    cap.TryDequeue(t0, 3, out var f); True(f.Rate <= 1.5 + 1e-9, "strop rychlosti");
+    await Task.CompletedTask;
+});
+T("SpeechService: čte věty po sobě, ztlumení nic nečte", async () =>
+{
+    var wav = MakeWav(1000); int calls = 0;
+    var synth = new FakeSynth { Fn = (t, r) => { Interlocked.Increment(ref calls); return wav; } };
+    var played = new List<int>(); var player = new FakePlayer { OnPlay = d => { lock (played) played.Add(d.Length); } };
+    using var svc = new SpeechService(synth, player, 2, 1.0);
+    svc.Speak("První věta"); await Task.Delay(300);
+    svc.Speak("Druhá věta"); await Task.Delay(300);
+    Eq(2, svc.Spoken, "přečteno"); Eq(2, calls, "dvě syntézy"); True(svc.CharsSent == "První věta".Length + "Druhá věta".Length, "počítadlo znaků");
+    svc.Muted = true; svc.Speak("tiše"); await Task.Delay(150); Eq(2, svc.Spoken, "ztlumeno");
+});
+T("Nastavení hlasu: ořez a výchozí hodnoty", async () =>
+{
+    var s = new AppSettings { SpeechRate = 9, SpeechVolume = -1, SpeechMaxQueue = 99, HkSpeech = "??" };
+    s.Normalize();
+    Eq(2.0, s.SpeechRate, "rate"); Eq(0.0, s.SpeechVolume, "vol"); Eq(5, s.SpeechMaxQueue, "queue"); Eq("F4", s.HkSpeech, "hotkey");
+    True(!new AppSettings().SpeechEnabled, "výchozí vypnuto");
+    await Task.CompletedTask;
+});
+T("SpeechService: chyba zdroje hlasu se hlásí, hlasitost se aplikuje", async () =>
+{
+    var wav = MakeWav(1000); var seen = new List<double>();
+    var ok = new FakeSynth { Fn = (t, r) => { lock (seen) seen.Add(r); return wav; } };
+    var player = new FakePlayer();
+    using var svc = new SpeechService(ok, player, 2, 1.0);
+    svc.Speak("Ahoj"); await Task.Delay(250);
+    Eq(1, svc.Spoken, "přečteno"); Eq(1, seen.Count, "zdroj zavolán");
+    var errs = new List<string>();
+    var bad = new FakeSynth { Fn = (t, r) => throw new TranslationException(TranslationErrorKind.NotConfigured, "Windows nemá nainstalovaný hlas pro jazyk „cs“.") };
+    using var svc2 = new SpeechService(bad, new FakePlayer(), 2, 1.0); svc2.Error += errs.Add;
+    svc2.Speak("a"); await Task.Delay(200);
+    Eq(1, errs.Count, "chyba hlášena"); True(errs[0].Contains("nemá nainstalovaný"), errs[0]);
+    svc.Volume = 0.5; var vols = new List<short>();
+    var p2 = new FakePlayer { OnPlay = d => { lock (vols) vols.Add(BitConverter.ToInt16(d, 44)); } };
+    using var svc3 = new SpeechService(ok, p2, 2, 1.0) { Volume = 0.5 };
+    svc3.Speak("hlasitost"); await Task.Delay(250);
+    Eq(1, vols.Count, "přehráno"); Eq((short)500, vols[0], "hlasitost se aplikuje");
+});
+T("Nastavení: zkratky hlasitosti se vrátí na výchozí", async () =>
+{
+    var s = new AppSettings { HkVolUp = "xx", HkVolDown = "" }; s.Normalize();
+    Eq("Ctrl+PageUp", s.HkVolUp, "up"); Eq("Ctrl+PageDown", s.HkVolDown, "down");
+    await Task.CompletedTask;
+});
+
 Console.WriteLine($"\nVýsledek: {pass} OK, {fail} selhalo");
 return fail == 0 ? 0 : 1;
 
@@ -817,4 +1020,31 @@ sealed class ZoneOcr : IScreenOcr
         if (f.Width == 800) return Task.FromResult<IReadOnlyList<OcrLine>>(Array.Empty<OcrLine>());
         return Task.FromResult<IReadOnlyList<OcrLine>>(new[] { new OcrLine("Zone line of subtitle", 32.0 / f.Width, 22.0 / f.Height, 80.0 / f.Width, 20.0 / f.Height) });
     }
+}
+
+sealed class CountingTranslator : ITranslator
+{
+    readonly int _ms; public int Calls;
+    public CountingTranslator(int ms) { _ms = ms; }
+    public string Name => "counting";
+    public async Task<string> TranslateAsync(string t, string? c, CancellationToken ct) { Interlocked.Increment(ref Calls); if (_ms > 0) await Task.Delay(_ms, ct); return "CS:" + t; }
+    public Task<ConnectionTestResult> TestAsync(CancellationToken ct) => Task.FromResult(new ConnectionTestResult(true, "ok"));
+}
+sealed class ThrowingTranslator : ITranslator
+{
+    public string Name => "throwing";
+    public Task<string> TranslateAsync(string t, string? c, CancellationToken ct) => throw new TranslationException(TranslationErrorKind.Server, "boom");
+    public Task<ConnectionTestResult> TestAsync(CancellationToken ct) => Task.FromResult(new ConnectionTestResult(false, "x"));
+}
+
+sealed class FakePlayer : ISpeechPlayer
+{
+    public Action<byte[]>? OnPlay;
+    public Task PlayAsync(byte[] wav, CancellationToken ct) { OnPlay?.Invoke(wav); return Task.CompletedTask; }
+}
+
+sealed class FakeSynth : ISpeechSynth
+{
+    public Func<string, double, byte[]> Fn = (_, _) => new byte[0];
+    public Task<byte[]> SynthesizeAsync(string text, double rate, CancellationToken ct) => Task.FromResult(Fn(text, rate));
 }

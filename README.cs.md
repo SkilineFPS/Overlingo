@@ -27,6 +27,15 @@ Windows 10/11 x64, .NET 10 Runtime (pro sestavení SDK), jazykový balíček Win
 - Spouštění s Windows, automatický start překladu při startu aplikace nebo při spuštění vybraného programu.
 - Historie titulků (F6), profily nastavení, export diagnostiky (zip bez API klíčů).
 - Zkratky: F6 historie, F7 režim, F8 start/stop, F9 overlay, F10 pauza, F11 oblast, F12 nastavení.
+- **Rychlost a stabilita:** překlad se spouští už po prvním přečtení, skoro stejné OCR čtení znovu využije dřívější překlad a přehled ukazuje naměřené prodlevy.
+- **Export historie** titulků do `.srt` (volitelně dvojjazyčně).
+
+### Čtení překladů nahlas (volitelné)
+V záložce **Hlas** lze zapnout čtení přeložených titulků **hlasem nainstalovaným ve Windows** (zdarma, offline, bez účtu a klíče; další hlasy se přidávají v Nastavení Windows → Čas a jazyk → Řeč). Zvuk jde na výchozí výstup Windows. Zapnutí/vypnutí: **F4**; hlasitost posuvníkem nebo **Ctrl+PageUp / Ctrl+PageDown**. Když hlas nestíhá, starší věty se přeskočí a další se řeknou rychleji.
+
+## Podpora autora
+
+Overlingo je zdarma a zdarma zůstane. Pokud vám šetří čas při hraní, můžete autora dobrovolně podpořit libovolnou částkou přes [PayPal](https://www.paypal.com/donate/?business=skilinek%40gmail.com&no_recurring=0&item_name=Overlingo+%E2%80%93+support+the+author&currency_code=EUR). V programu je také tlačítko **Podpořit autora**. Hlášení chyb a zpětná vazba jsou stejně vítané: [Issues](https://github.com/SkilineFPS/Overlingo/issues).
 
 ## Upozornění
 Google Translate bez klíče používá **neoficiální** endpoint a může kdykoli přestat fungovat. Pro stabilní provoz použijte vlastní klíč Google Cloud nebo DeepL. API klíče se ukládají šifrovaně (DPAPI). Viz `THIRD-PARTY-NOTICES.md`.

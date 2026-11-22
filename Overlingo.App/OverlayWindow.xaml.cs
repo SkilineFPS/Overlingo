@@ -83,6 +83,17 @@ public partial class OverlayWindow : Window
     }
 
     double _coverMinW, _coverMinH;
+    bool _preCover;
+    DateTime _preCoverAt;
+    /// <summary>Přečten nový originální titulek, překlad ještě nedorazil: starý překlad zmizí a prázdný černý box (velikosti nového originálu)
+    /// zakrývá originál, dokud nepřijde překlad (nejdéle 1,5 s).</summary>
+    public void BeginCover()
+    {
+        _entries.RemoveAll(e => !e.IsError);
+        _preCover = true; _preCoverAt = DateTime.UtcNow;
+        Render();
+    }
+    public void EndCover() { if (!_preCover) return; _preCover = false; Render(); }
     /// <summary>Režim „přes originál“: černý neprůhledný box aspoň tak velký jako původní titulek (rozměry v pixelech), vystředěný v okně.</summary>
     public void SetCover(bool on, double minWpx, double minHpx)
     {
@@ -91,6 +102,7 @@ public partial class OverlayWindow : Window
         Box.VerticalAlignment = on ? VerticalAlignment.Center : VerticalAlignment.Bottom;
         Lines.VerticalAlignment = on ? VerticalAlignment.Center : VerticalAlignment.Top;
         Box.MinWidth = on ? minWpx / k : 0; Box.MinHeight = on ? minHpx / k : 0;
+        if (_entries.Count > 0 || _preCover) Render();   // box se změnil → přepočítat zalomení a velikost písma
     }
 
     void ApplyWindowFlags()
@@ -148,7 +160,7 @@ public partial class OverlayWindow : Window
     public void AddSubtitle(string en, string cs, bool replaceLast = false, bool sourceGone = false)
     {
         var now = DateTime.UtcNow;
-        _lastVisible = now;
+        _lastVisible = now; _preCover = false;
         _entries.RemoveAll(e => e.IsError);
         if (replaceLast && _entries.Count > 0) _entries.RemoveAt(_entries.Count - 1);
         else foreach (var e in _entries.Where(e => e.Live))
@@ -197,13 +209,20 @@ public partial class OverlayWindow : Window
         var now = DateTime.UtcNow;
         // pojistka: když původní titulek nebyl 2,5 s vidět, překlad nesmí viset dál (zmeškaná událost „zmizel“)
         if (!HoldLive && _entries.Any(e => e.Live) && (now - _lastVisible).TotalSeconds > 2.5) OnSourceCleared();
-        if (_entries.RemoveAll(e => e.Expiry <= now) > 0) Render();
+        bool changed = _entries.RemoveAll(e => e.Expiry <= now) > 0;
+        if (_preCover && (now - _preCoverAt).TotalSeconds > 1.5) { _preCover = false; changed = true; }   // pojistka: překlad nedorazil (šum / titulek zmizel)
+        if (changed) Render();
     }
 
     void Render()
     {
         Lines.Children.Clear();
-        if (_entries.Count == 0) { Box.Visibility = Visibility.Collapsed; return; }
+        bool covering = _s.OverlayCoverOriginal && !_edit;
+        if (_entries.Count == 0)
+        {
+            Box.Visibility = _preCover && covering ? Visibility.Visible : Visibility.Collapsed;   // prázdný černý box přes originál
+            return;
+        }
         var fam = new FontFamily(_s.FontFamily);
         var shown = _s.OverlayCoverOriginal && !_edit ? _entries.Skip(Math.Max(0, _entries.Count - 1)).ToList() : _entries;
         var csBrush = MakeBrush(_s.TextColor, Colors.White);
@@ -212,9 +231,18 @@ public partial class OverlayWindow : Window
         {
             if (_s.ShowEnglish && !(_s.OverlayCoverOriginal && !_edit) && !e.IsError && e.En.Length > 0)
                 Lines.Children.Add(new TextBlock { Text = e.En, FontFamily = fam, FontSize = Math.Max(10, _s.FontSize * 0.7), Foreground = enBrush, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center });
+            double fs = _s.FontSize, maxW = double.PositiveInfinity;
+            if (covering && !e.IsError && _coverMinW > 0)
+            {   // box má velikost originálu: překlad se do něj vejde zmenšením písma / zalomením, box se nezvětšuje do šířky
+                double k = 1.0, ppd = 1.0; try { var d = VisualTreeHelper.GetDpi(this); k = d.DpiScaleX; ppd = d.PixelsPerDip; } catch { }
+                double boxW = _coverMinW / k, boxH = _coverMinH / k;
+                maxW = Math.Max(140, boxW * 1.12 - (Box.Padding.Left + Box.Padding.Right));
+                double maxH = Math.Max(boxH * 1.5, _s.FontSize * 1.3) - (Box.Padding.Top + Box.Padding.Bottom);
+                fs = TextFit.Fit(e.Cs, fam, FontWeights.SemiBold, _s.FontSize, Math.Max(10, _s.FontSize * 0.6), maxW, maxH, ppd);
+            }
             Lines.Children.Add(new TextBlock
             {
-                Text = e.Cs, FontFamily = fam, FontSize = _s.FontSize, FontWeight = FontWeights.SemiBold,
+                Text = e.Cs, FontFamily = fam, FontSize = fs, FontWeight = FontWeights.SemiBold, MaxWidth = maxW,
                 Foreground = e.IsError ? Brushes.OrangeRed : csBrush, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center,
                 Margin = new Thickness(0, 0, 0, ReferenceEquals(e, shown[^1]) ? 0 : 6)
             });

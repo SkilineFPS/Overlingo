@@ -134,11 +134,25 @@ public sealed class AppSettings
     public TranslatorKind Translator { get; set; } = TranslatorKind.GoogleUnofficial;
     public string GoogleCloudKeyProtected { get; set; } = "";
     public string DeepLKeyProtected { get; set; } = "";
+
+    // --- hlas (hlas nainstalovaný ve Windows)
+    public bool SpeechEnabled { get; set; }
+    /// <summary>Název hlasu nainstalovaného ve Windows; prázdné = první hlas v jazyce překladu.</summary>
+    public string SpeechWindowsVoice { get; set; } = "";
+    public double SpeechRate { get; set; } = 1.0;
+    public double SpeechVolume { get; set; } = 1.0;
+    /// <summary>Kolik vět max. čeká na přečtení (starší se zahodí, aby hlas nezaostával).</summary>
+    public int SpeechMaxQueue { get; set; } = 2;
+    public string HkSpeech { get; set; } = "F4";
+    public string HkVolUp { get; set; } = "Ctrl+PageUp";
+    public string HkVolDown { get; set; } = "Ctrl+PageDown";
     public bool UseContext { get; set; } = true;
     public int ContextLines { get; set; } = 2;
 
     // --- overlay
     public bool OverlayVisible { get; set; } = true;
+    /// <summary>Překlad se spustí už po prvním přečtení (před potvrzením stejným druhým čtením). Rychlejší, může spotřebovat víc znaků API limitu.</summary>
+    public bool SpeculativeTranslate { get; set; } = true;
     /// <summary>Overlay titulků se automaticky umístí těsně NAD vybranou oblast titulků (ruční přesun to vypne).</summary>
     public bool OverlayAutoAbove { get; set; } = false;
     /// <summary>Překlad se zobrazí přímo přes původní titulek na neprůhledném černém pozadí (originál není vidět). Vyžaduje automatické umístění.</summary>
@@ -181,7 +195,11 @@ public sealed class AppSettings
         HttpTimeoutSec = Math.Clamp(HttpTimeoutSec, 2, 60);
         RetryCount = Math.Clamp(RetryCount, 0, 3);
         IgnoreContains ??= "";
-        foreach (var (n, def) in new[] { ("HkToggle", "F8"), ("HkOverlay", "F9"), ("HkPause", "F10"), ("HkRegion", "F11"), ("HkSettings", "F12"), ("HkScope", "F7"), ("HkHistory", "F6"), ("HkCorrect", "F5") })
+        SpeechRate = Math.Clamp(SpeechRate, 0.5, 2.0);
+        SpeechVolume = Math.Clamp(SpeechVolume, 0, 1.5);
+        SpeechMaxQueue = Math.Clamp(SpeechMaxQueue, 1, 5);
+        SpeechWindowsVoice ??= "";
+        foreach (var (n, def) in new[] { ("HkToggle", "F8"), ("HkOverlay", "F9"), ("HkPause", "F10"), ("HkRegion", "F11"), ("HkSettings", "F12"), ("HkScope", "F7"), ("HkHistory", "F6"), ("HkCorrect", "F5"), ("HkSpeech", "F4"), ("HkVolUp", "Ctrl+PageUp"), ("HkVolDown", "Ctrl+PageDown") })
         {
             var pi = typeof(AppSettings).GetProperty(n)!;
             if (!HotkeyParser.TryParse((string?)pi.GetValue(this), out _, out _)) pi.SetValue(this, def);

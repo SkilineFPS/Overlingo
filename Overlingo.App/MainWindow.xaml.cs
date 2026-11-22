@@ -28,7 +28,48 @@ public partial class MainWindow : Window
     {
         var vis = S.ShowAdvancedUi ? Visibility.Visible : Visibility.Collapsed;
         foreach (var t in new[] { TabOcr, TabAdvanced, TabDiag, TabLogs, TabTest }) t.Visibility = vis;
+        if (SettingsTabs.SelectedItem is TabItem sub && sub.Visibility != Visibility.Visible) SettingsTabs.SelectedItem = TabSetup;
         if (Tabs.SelectedItem is TabItem cur && cur.Visibility != Visibility.Visible) Tabs.SelectedItem = TabHome;
+    }
+
+    /// <summary>Verze programu (z buildu; při vývoji „dev“).</summary>
+    public static string AppVersion
+    {
+        get
+        {
+            var v = typeof(MainWindow).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+                .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion;
+            if (string.IsNullOrWhiteSpace(v)) v = typeof(MainWindow).Assembly.GetName().Version?.ToString(3);
+            if (string.IsNullOrWhiteSpace(v)) return "dev";
+            int plus = v.IndexOf('+'); if (plus > 0) v = v[..plus];
+            return v;
+        }
+    }
+
+    void FillAbout()
+    {
+        var ver = AppVersion;
+        NavVersion.Text = "v" + ver;
+        AboutVersion.Text = Loc.T("Verze") + " " + ver;
+        AboutRuntime.Text = $".NET {Environment.Version} · {System.Runtime.InteropServices.RuntimeInformation.OSDescription}";
+    }
+
+    void OnOpenUrl(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string url } && url.StartsWith("https://"))
+        {
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+        }
+    }
+
+    void OnCopyVersionInfo(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText($"Overlingo {AppVersion}\n.NET {Environment.Version}\n{System.Runtime.InteropServices.RuntimeInformation.OSDescription}\nOCR: {_c.OcrInfo}");
+            SetStatus(Loc.T("Informace o verzi zkopírovány do schránky."));
+        }
+        catch { }
     }
 
     void OnAdvancedUiToggled(object sender, RoutedEventArgs e)
@@ -119,6 +160,16 @@ public partial class MainWindow : Window
     }
     void OnRunWizard(object s, RoutedEventArgs e) => RunWizard();
 
+    void OnSupport(object s, RoutedEventArgs e)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppInfo.SupportUrl) { UseShellExecute = true }); }
+        catch (Exception ex) { SetStatus("Odkaz na podporu se nepodařilo otevřít: " + ex.Message); }
+    }
+    void OnCopySupportLink(object s, RoutedEventArgs e)
+    {
+        try { Clipboard.SetText(AppInfo.SupportUrl); SetStatus("Odkaz na podporu zkopírován do schránky."); } catch { }
+    }
+
     readonly DispatcherTimer _progTimer = new() { Interval = TimeSpan.FromSeconds(3) };
     bool _manualStop, _progBusy;
 
@@ -160,6 +211,9 @@ public partial class MainWindow : Window
         _hot.Register(5, S.HkSettings, "otevřít nastavení", () => Dispatcher.BeginInvoke(new Action(ShowSettings)));
         _hot.Register(6, S.HkScope, "přepnout režim", () => Dispatcher.BeginInvoke(new Action(async () => await ToggleScopeAsync())));
         _hot.Register(8, S.HkCorrect, "špatný překlad", () => Dispatcher.BeginInvoke(new Action(ShowCorrection)));
+        _hot.Register(10, S.HkVolUp, "hlasitost hlasu +", () => Dispatcher.BeginInvoke(new Action(() => StepVolume(0.1))));
+        _hot.Register(11, S.HkVolDown, "hlasitost hlasu −", () => Dispatcher.BeginInvoke(new Action(() => StepVolume(-0.1))));
+        _hot.Register(9, S.HkSpeech, "hlas zap/vyp", () => Dispatcher.BeginInvoke(new Action(ToggleSpeechHotkey)));
         _hot.Register(7, S.HkHistory, "historie titulků", () => Dispatcher.BeginInvoke(new Action(ShowHistory)));
         var sb = new StringBuilder();
         if (_hot.Failed.Count == 0 && _hot.Fallback.Count == 0) sb.Append("Všechny zkratky jsou zaregistrovány.");
@@ -264,19 +318,26 @@ public partial class MainWindow : Window
         TbFont.Text = s.FontFamily; TbFontSize.Text = s.FontSize.ToString(CultureInfo.InvariantCulture);
         TbColor.Text = s.TextColor; TbEnColor.Text = s.EnglishColor; SlOpacity.Value = s.BackgroundOpacity;
         TbMaxLines.Text = s.MaxLines.ToString(); TbSeconds.Text = s.DisplaySeconds.ToString(CultureInfo.InvariantCulture);
-        CbAutoAbove.IsChecked = s.OverlayAutoAbove; CbCover.IsChecked = s.OverlayCoverOriginal; CbShowEn.IsChecked = s.ShowEnglish; CbClickThrough.IsChecked = s.ClickThrough; CbExclude.IsChecked = s.ExcludeOverlayFromCapture;
+        CbAutoAbove.IsChecked = s.OverlayAutoAbove; CbCover.IsChecked = s.OverlayCoverOriginal; CbSpeculative.IsChecked = s.SpeculativeTranslate; CbShowEn.IsChecked = s.ShowEnglish; CbClickThrough.IsChecked = s.ClickThrough; CbExclude.IsChecked = s.ExcludeOverlayFromCapture;
         RbScopeDialog.IsChecked = s.Scope == TranslationScope.DialogOnly; RbScopeFull.IsChecked = s.Scope == TranslationScope.FullScreen;
         CbAdaptive.IsChecked = s.AdaptiveInterval; CbStripJunk.IsChecked = s.StripJunkTokens; CbVerbose.IsChecked = s.VerboseLog;
         TbCacheMax.Text = s.CacheMax.ToString(); TbHttpTimeout.Text = s.HttpTimeoutSec.ToString(); TbRetry.Text = s.RetryCount.ToString();
         TbScreenScale.Text = s.ScreenFontScale.ToString(CultureInfo.InvariantCulture); TbScreenInterval.Text = s.ScreenMinIntervalMs.ToString();
         TbIgnore.Text = s.IgnoreContains; TbMaxChars.Text = s.MaxSubtitleChars.ToString(); CbGameArea.IsChecked = s.AutoGameArea;
-        HkToggle.Text = s.HkToggle; HkOverlay.Text = s.HkOverlay; HkPause.Text = s.HkPause; HkRegion.Text = s.HkRegion; HkSettings.Text = s.HkSettings; HkScope.Text = s.HkScope; HkHistory.Text = s.HkHistory; HkCorrect.Text = s.HkCorrect;
+        HkToggle.Text = s.HkToggle; HkOverlay.Text = s.HkOverlay; HkPause.Text = s.HkPause; HkRegion.Text = s.HkRegion; HkSettings.Text = s.HkSettings; HkScope.Text = s.HkScope; HkHistory.Text = s.HkHistory; HkCorrect.Text = s.HkCorrect; HkSpeech.Text = s.HkSpeech;
+        _speechUiLoading = true;
+        HkVolUp.Text = s.HkVolUp; HkVolDown.Text = s.HkVolDown;
+        CbSpeech.IsChecked = s.SpeechEnabled;
+        FillWinVoices(s);
+        TbSpeechRate.Text = s.SpeechRate.ToString("0.##", CultureInfo.InvariantCulture); TbSpeechQueue.Text = s.SpeechMaxQueue.ToString();
+        SlSpeechVolume.Value = s.SpeechVolume; TxtSpeechVolume.Text = $"{s.SpeechVolume * 100:0} %";
+        _speechUiLoading = false;
         CbSrcLang.ItemsSource = Languages.All; CbTgtLang.ItemsSource = Languages.All;
         CbSrcLang.SelectedItem = Languages.Find(s.SourceLang); CbTgtLang.SelectedItem = Languages.Find(s.TargetLang);
         TbGlossary.Text = s.Glossary;
         TbGeminiModel.Text = s.GeminiModel; TbAiUrl.Text = s.AiBaseUrl; TbAiModel.Text = s.AiModel; TbAiContext.Text = s.AiGameContext;
         var langs = Loc.Available(); CbUiLang.ItemsSource = langs; CbUiLang.SelectedItem = langs.FirstOrDefault(l => l.Code == Loc.Current);
-        CbAdvancedUi.IsChecked = s.ShowAdvancedUi; ApplyAdvancedUi();
+        CbAdvancedUi.IsChecked = s.ShowAdvancedUi; ApplyAdvancedUi(); FillAbout();
         CbAutostart.IsChecked = Autostart.IsEnabled(); CbStartTranslate.IsChecked = s.StartTranslationOnLaunch; CbAutoProgram.IsChecked = s.AutoStartWhenProgramRuns;
         CbWeb.IsChecked = s.WebEnabled; TbWebPort.Text = s.WebPort.ToString();
         WebUrlText.Text = s.WebEnabled ? $"Adresa pro OBS: http://127.0.0.1:{s.WebPort}/" : "";
@@ -324,14 +385,18 @@ public partial class MainWindow : Window
         s.BackgroundOpacity = SlOpacity.Value;
         s.MaxLines = I(TbMaxLines, s.MaxLines, bad, "Max. titulků");
         s.DisplaySeconds = D(TbSeconds, s.DisplaySeconds, bad, "Doba zobrazení");
-        s.OverlayAutoAbove = CbAutoAbove.IsChecked == true; s.OverlayCoverOriginal = CbCover.IsChecked == true; s.ShowEnglish = CbShowEn.IsChecked == true; s.ClickThrough = CbClickThrough.IsChecked == true; s.ExcludeOverlayFromCapture = CbExclude.IsChecked == true;
+        s.OverlayAutoAbove = CbAutoAbove.IsChecked == true; s.OverlayCoverOriginal = CbCover.IsChecked == true; s.SpeculativeTranslate = CbSpeculative.IsChecked == true; s.ShowEnglish = CbShowEn.IsChecked == true; s.ClickThrough = CbClickThrough.IsChecked == true; s.ExcludeOverlayFromCapture = CbExclude.IsChecked == true;
         s.Scope = RbScopeFull.IsChecked == true ? TranslationScope.FullScreen : TranslationScope.DialogOnly;
         s.AdaptiveInterval = CbAdaptive.IsChecked == true; s.StripJunkTokens = CbStripJunk.IsChecked == true; s.VerboseLog = CbVerbose.IsChecked == true;
         s.CacheMax = I(TbCacheMax, s.CacheMax, bad, "Velikost cache"); s.HttpTimeoutSec = I(TbHttpTimeout, s.HttpTimeoutSec, bad, "Časový limit");
         s.RetryCount = I(TbRetry, s.RetryCount, bad, "Opakování");
         s.ScreenFontScale = D(TbScreenScale, s.ScreenFontScale, bad, "Velikost písma (obrazovka)"); s.ScreenMinIntervalMs = I(TbScreenInterval, s.ScreenMinIntervalMs, bad, "Interval (obrazovka)");
         s.IgnoreContains = TbIgnore.Text.Trim(); s.MaxSubtitleChars = I(TbMaxChars, s.MaxSubtitleChars, bad, "Max. délka titulku"); s.AutoGameArea = CbGameArea.IsChecked == true;
-        s.HkToggle = HkToggle.Text; s.HkOverlay = HkOverlay.Text; s.HkPause = HkPause.Text; s.HkRegion = HkRegion.Text; s.HkSettings = HkSettings.Text; s.HkScope = HkScope.Text; s.HkHistory = HkHistory.Text; s.HkCorrect = HkCorrect.Text;
+        s.HkToggle = HkToggle.Text; s.HkOverlay = HkOverlay.Text; s.HkPause = HkPause.Text; s.HkRegion = HkRegion.Text; s.HkSettings = HkSettings.Text; s.HkScope = HkScope.Text; s.HkHistory = HkHistory.Text; s.HkCorrect = HkCorrect.Text; s.HkSpeech = HkSpeech.Text;
+        s.HkVolUp = HkVolUp.Text; s.HkVolDown = HkVolDown.Text;
+        s.SpeechEnabled = CbSpeech.IsChecked == true;
+        s.SpeechWindowsVoice = CbWinVoice.SelectedItem is string wv && wv != AutoVoice ? wv : "";
+        s.SpeechRate = D(TbSpeechRate, s.SpeechRate, bad, "Rychlost řeči"); s.SpeechVolume = Math.Round(SlSpeechVolume.Value, 2); s.SpeechMaxQueue = I(TbSpeechQueue, s.SpeechMaxQueue, bad, "Fronta hlasu");
         s.SourceLang = (CbSrcLang.SelectedItem as Lang)?.Code ?? s.SourceLang; s.TargetLang = (CbTgtLang.SelectedItem as Lang)?.Code ?? s.TargetLang;
         s.Glossary = TbGlossary.Text;
         s.GeminiModel = TbGeminiModel.Text.Trim(); s.AiBaseUrl = TbAiUrl.Text.Trim(); s.AiModel = TbAiModel.Text.Trim(); s.AiGameContext = TbAiContext.Text.Trim();
@@ -460,6 +525,10 @@ public partial class MainWindow : Window
         L("Čas OCR:", $"{st.LastOcrMs} ms (průměr {st.AvgOcrMs:0} ms, metoda: {(st.LastOcrMethod == "" ? "-" : st.LastOcrMethod)})");
         L("Překladač:", _c.Service.Translator.Name);
         L("Čas překladu:", $"{ts.LastMs} ms");
+        L("Prodleva OCR:", st.Latency.Describe("ocr"));
+        L("Prodleva překladu:", st.Latency.Describe("translate"));
+        L("Od titulku do zobrazení:", st.Latency.Describe("total"));
+        if (_c.Speech is { } sp) L("Hlas (tato relace):", $"přečteno {sp.Spoken} vět, přeskočeno {sp.Dropped}");
         L("Potlačené duplicity:", st.Suppressed.ToString());
         L("Požadavky/cache:", $"{ts.Requests} / {ts.CacheHits} zásahů (úspěšnost {(ts.Requests + ts.CacheHits == 0 ? 0 : 100.0 * ts.CacheHits / (ts.Requests + ts.CacheHits)):0} %, cache {_c.Cache.Count} vět)");
         L("Odesláno znaků:", ts.CharsSent.ToString("N0"));
@@ -606,6 +675,76 @@ public partial class MainWindow : Window
     }
     void OnClearGoogleKey(object s, RoutedEventArgs e) { S.GoogleCloudKeyProtected = ""; PbGoogle.Clear(); UpdateKeyStates(); S.Save(); _c.SetSettings(S); }
     void OnClearGeminiKey(object s, RoutedEventArgs e) { S.GeminiKeyProtected = ""; PbGemini.Clear(); UpdateKeyStates(); S.Save(); _c.SetSettings(S); }
+    bool _speechUiLoading;
+    static string AutoVoice => Loc.T("(automaticky podle jazyka překladu)");
+
+    void FillWinVoices(AppSettings s)
+    {
+        try
+        {
+            var items = new List<string> { AutoVoice };
+            items.AddRange(WindowsSpeechSynth.Voices().Select(WindowsSpeechSynth.Label));
+            CbWinVoice.ItemsSource = items;
+            var cur = items.FirstOrDefault(i => s.SpeechWindowsVoice.Length > 0 && i.StartsWith(s.SpeechWindowsVoice, StringComparison.OrdinalIgnoreCase));
+            CbWinVoice.SelectedItem = cur ?? items[0];
+            WinVoiceInfo.Text = items.Count == 1 ? Loc.T("Ve Windows není nainstalovaný žádný hlas.") : string.Format(Loc.T("Nalezeno hlasů: {0}."), items.Count - 1);
+        }
+        catch (Exception ex) { WinVoiceInfo.Text = Loc.T("Hlasy Windows se nepodařilo načíst: ") + ex.Message; }
+    }
+
+    void OnSpeechVolumeChanged(object s, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_speechUiLoading || !IsLoaded) return;
+        TxtSpeechVolume.Text = $"{SlSpeechVolume.Value * 100:0} %";
+        _c.SetSpeechVolume(SlSpeechVolume.Value, save: false);   // projeví se hned; uloží se s nastavením
+    }
+    void OnOpenWinSpeechSettings(object s, RoutedEventArgs e)
+    {
+        try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:speech") { UseShellExecute = true }); }
+        catch (Exception ex) { SpeechTestResult.Text = "✘ " + ex.Message; }
+    }
+
+    async void OnTestSpeech(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            CollectUi(); UpdateKeyStates(); SpeechTestResult.Text = Loc.T("Testuji…");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+            var w = (WindowsSpeechSynth)_c.BuildSynth(S);
+            var r = new ConnectionTestResult(true, w.Describe());
+            SpeechTestResult.Text = (r.Ok ? "✔ " : "✘ ") + r.Message;
+            AppLog.Info("Test hlasu: " + (r.Ok ? "OK" : "SELHÁNÍ") + " – " + r.Message);
+        }
+        catch (TranslationException ex) { SpeechTestResult.Text = "✘ " + ex.Message; }
+        catch (Exception ex) { SpeechTestResult.Text = "✘ " + ex.Message; }
+    }
+    async void OnSpeechSample(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            CollectUi(); UpdateKeyStates(); SpeechTestResult.Text = Loc.T("Syntetizuji…");
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            var text = S.TargetLang.StartsWith("cs") ? "Ahoj, tohle je ukázka hlasu programu Overlingo." : "Hello, this is a voice sample from Overlingo.";
+            var wav = await _c.BuildSynth(S).SynthesizeAsync(text, S.SpeechRate, cts.Token);
+            SpeechTestResult.Text = Loc.T("▶ Přehrávám…");
+            await new WavPlayer().PlayAsync(WavTools.ScaleVolume(wav, S.SpeechVolume), cts.Token);
+            SpeechTestResult.Text = Loc.T("✔ Ukázka přehrána.");
+        }
+        catch (Exception ex) { SpeechTestResult.Text = "✘ " + ex.Message; }
+    }
+    void StepVolume(double delta)
+    {
+        var v = Math.Round(Math.Clamp(S.SpeechVolume + delta, 0, 1.5), 2);
+        _c.SetSpeechVolume(v);
+        _speechUiLoading = true; SlSpeechVolume.Value = v; TxtSpeechVolume.Text = $"{v * 100:0} %"; _speechUiLoading = false;
+        _c.Overlay.ShowError($"🔊 {Loc.T("Hlasitost")} {v * 100:0} %");
+    }
+    void ToggleSpeechHotkey()
+    {
+        bool on = _c.ToggleSpeech();
+        S.SpeechEnabled = on; CbSpeech.IsChecked = on;
+        _c.Overlay.ShowError(on ? "🔊 Hlas zapnut" : "🔇 Hlas vypnut");
+    }
     void OnClearDeepLKey(object s, RoutedEventArgs e) { S.DeepLKeyProtected = ""; PbDeepL.Clear(); UpdateKeyStates(); S.Save(); _c.SetSettings(S); }
     // ================= historie, export, profily, OBS =================
     /// <summary>Oprava posledního zobrazeného překladu: uloží se a příště se použije místo překladače.</summary>

@@ -85,7 +85,45 @@ public sealed class TranslationService
     public string LangTag { get; set; } = "";
     Glossary _glossary = Glossary.Parse("");
     public Glossary Glossary { get => _glossary; set => _glossary = value ?? Glossary.Parse(""); }
-    string KeyFor(string provider, string text) => TranslationCache.MakeKey(provider + (LangTag.Length > 0 ? "|" + LangTag : "") + (_glossary.IsEmpty ? "" : "|g" + _glossary.Version), text);
+    string Prefix(string provider) => provider + (LangTag.Length > 0 ? "|" + LangTag : "") + (_glossary.IsEmpty ? "" : "|g" + _glossary.Version);
+    string KeyFor(string provider, string text) => TranslationCache.MakeKey(Prefix(provider), text);
+
+    // ---- sdílené rozpracované požadavky (překlad „na zkoušku“ po prvním čtení a potvrzený překlad téže věty se nespustí dvakrát)
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<TranslationResult>>> _inflight = new();
+    // ---- nedávné věty pro „přibližnou“ cache (OCR přečte tutéž větu o písmeno jinak)
+    readonly List<(string Prefix, string Text, string Cs)> _recent = new();
+    public const double FuzzyThreshold = 0.94;
+    public long FuzzyHits;
+
+    void Remember(string prefix, string text, string cs)
+    {
+        lock (_lk)
+        {
+            _recent.Add((prefix, text, cs));
+            if (_recent.Count > 150) _recent.RemoveAt(0);
+        }
+    }
+
+    /// <summary>Skoro stejná věta jako nedávno přeložená (rozdíl jen drobná OCR chyba)? Čísla musí být shodná, délka přibližně stejná.</summary>
+    bool TryFuzzy(string prefix, string text, out string cs)
+    {
+        cs = "";
+        var k = TextTools.Key(text);
+        if (k.Length < 12) return false;
+        var digits = new string(k.Where(char.IsDigit).ToArray());
+        (string Prefix, string Text, string Cs)[] snap;
+        lock (_lk) snap = _recent.ToArray();
+        for (int i = snap.Length - 1; i >= 0; i--)
+        {
+            var r = snap[i];
+            if (r.Prefix != prefix) continue;
+            var rk = TextTools.Key(r.Text);
+            if (Math.Abs(rk.Length - k.Length) > Math.Max(2, k.Length * 0.08)) continue;
+            if (new string(rk.Where(char.IsDigit).ToArray()) != digits) continue;
+            if (TextTools.Similarity(rk, k) >= FuzzyThreshold) { cs = r.Cs; return true; }
+        }
+        return false;
+    }
     /// <summary>Vlastní opravy (mají přednost před překladačem i cache).</summary>
     public CorrectionStore? Corrections { get; set; }
     public Func<int, Task> DelayFn { get; set; } = ms => Task.Delay(ms);
@@ -135,19 +173,55 @@ public sealed class TranslationService
 
     void Fail(Exception e) { Stats.Errors++; Stats.LastError = e.Message; Stats.LastErrorUtc = DateTime.UtcNow; }
 
+    /// <summary>Překlad jedné věty. Stejná věta, která se právě překládá (např. „na zkoušku“), se nepošle podruhé.</summary>
     public async Task<TranslationResult> TranslateAsync(string english, CancellationToken ct)
+    {
+        var r = await RunSharedAsync(english, ct).ConfigureAwait(false);
+        AddHistory(english);
+        return r;
+    }
+
+    /// <summary>Překlad „na zkoušku“ hned po prvním přečtení: výsledek skončí v cache, takže potvrzený titulek se zobrazí bez čekání.
+    /// Nemění kontext předchozích vět. Chyby se nehlásí (potvrzený překlad je zopakuje, pokud se věta potvrdí).</summary>
+    public async Task PrefetchAsync(string english, CancellationToken ct)
+    {
+        try { await RunSharedAsync(english, ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) { throw; }
+        catch { /* případná chyba se ukáže až u potvrzeného titulku */ }
+    }
+
+    Task<TranslationResult> RunSharedAsync(string english, CancellationToken ct)
+    {
+        var key = KeyFor(_translator.Name, english);
+        var lazy = _inflight.GetOrAdd(key, _ => new Lazy<Task<TranslationResult>>(() => Task.Run(async () =>
+        {
+            try { return await TranslateCoreAsync(english, ct).ConfigureAwait(false); }
+            finally { _inflight.TryRemove(key, out Lazy<Task<TranslationResult>>? _); }
+        })));
+        return lazy.Value;
+    }
+
+    async Task<TranslationResult> TranslateCoreAsync(string english, CancellationToken ct)
     {
         var t = _translator;
         if (Corrections != null && Corrections.TryGet(english, LangTag, out var fixedText))
         {
-            Stats.CacheHits++; AddHistory(english);
+            Stats.CacheHits++;
             return new TranslationResult(fixedText, "vaše oprava", 0, true);
         }
-        var key = KeyFor(t.Name, english);
+        var prefix = Prefix(t.Name);
+        var key = TranslationCache.MakeKey(prefix, english);
         if (_cache.TryGet(key, out var hit))
         {
-            Stats.CacheHits++; AddHistory(english);
+            Stats.CacheHits++;
+            Remember(prefix, english, hit);
             return new TranslationResult(hit, t.Name, 0, true);
+        }
+        if (TryFuzzy(prefix, english, out var fz))
+        {
+            Stats.CacheHits++; FuzzyHits++;
+            _cache.Put(key, fz);
+            return new TranslationResult(fz, t.Name, 0, true);
         }
         var ctx = Context();
         var sw = Stopwatch.StartNew();
@@ -166,7 +240,7 @@ public sealed class TranslationService
             else cs = await WithRetry(() => Hedged(() => t.TranslateAsync(english, ctx, ct), ct)).ConfigureAwait(false);
             sw.Stop();
             Stats.LastMs = (int)sw.ElapsedMilliseconds;
-            _cache.Put(key, cs); AddHistory(english);
+            _cache.Put(key, cs); Remember(prefix, english, cs);
             return new TranslationResult(cs, t.Name, Stats.LastMs);
         }
         catch (Exception e) { Fail(e); throw; }

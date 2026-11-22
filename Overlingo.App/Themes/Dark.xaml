@@ -114,6 +114,10 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <LinearGradientBrush x:Key="SupportGrad" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#FFEC4899" Offset="0"/>
+        <GradientStop Color="#FFF97316" Offset="1"/>
+    </LinearGradientBrush>
     <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
         <Setter Property="Foreground" Value="White"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
@@ -121,6 +125,24 @@
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="bd" Background="{StaticResource AccentGrad}" CornerRadius="10" Padding="{TemplateBinding Padding}">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="bd" Property="Opacity" Value="0.88"/></Trigger>
+                        <Trigger Property="IsPressed" Value="True"><Setter TargetName="bd" Property="Opacity" Value="0.8"/></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="bd" Property="Opacity" Value="0.4"/></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="SupportButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="bd" Background="{StaticResource SupportGrad}" CornerRadius="10" Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
@@ -417,24 +439,60 @@
         </Setter>
     </Style>
 
-    <!-- ===== postranní navigace (TabControl vlevo) ===== -->
+    <!-- ===== postranní navigace (TabControl vlevo): 3D tlačítka ===== -->
+    <SolidColorBrush x:Key="Amber" Color="#FFFFB629"/>
+    <LinearGradientBrush x:Key="NavBg" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FF171E36" Offset="0"/>
+        <GradientStop Color="#FF10131F" Offset="0.55"/>
+        <GradientStop Color="#FF0C0E16" Offset="1"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="NavBtn" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FF2B3556" Offset="0"/>
+        <GradientStop Color="#FF1B2240" Offset="1"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="NavBtnHover" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FF37446D" Offset="0"/>
+        <GradientStop Color="#FF232C50" Offset="1"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="NavBtnEdge" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#66FFFFFF" Offset="0"/>
+        <GradientStop Color="#1AFFFFFF" Offset="0.5"/>
+        <GradientStop Color="#33000000" Offset="1"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="NavBtnSelected" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Color="#FF7AA4FF" Offset="0"/>
+        <GradientStop Color="#FF4A74F0" Offset="0.5"/>
+        <GradientStop Color="#FF3358C8" Offset="1"/>
+    </LinearGradientBrush>
+
     <Style TargetType="TabItem">
-        <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+        <Setter Property="Foreground" Value="#FFC4CCE0"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TabItem">
-                    <Border x:Name="bd" Background="Transparent" CornerRadius="10" Padding="14,11" Margin="0,2" Cursor="Hand">
-                        <ContentPresenter ContentSource="Header" TextElement.Foreground="{TemplateBinding Foreground}"/>
-                    </Border>
+                    <Grid Margin="0,4">
+                        <Border x:Name="bd" Background="{StaticResource NavBtn}" BorderBrush="{StaticResource NavBtnEdge}" BorderThickness="1"
+                                CornerRadius="12" Padding="16,12" Cursor="Hand">
+                            <Border.Effect><DropShadowEffect Color="#FF000000" BlurRadius="9" ShadowDepth="3" Direction="270" Opacity="0.55"/></Border.Effect>
+                            <ContentPresenter ContentSource="Header" TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <Border x:Name="mark" Width="4" Height="20" CornerRadius="2" Background="{StaticResource Amber}" HorizontalAlignment="Left" Margin="-1,0,0,0" Visibility="Collapsed"/>
+                    </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Surface2}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource NavBtnHover}"/>
+                            <Setter Property="Foreground" Value="White"/>
                         </Trigger>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentSoft}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Fg}"/>
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource NavBtnSelected}"/>
+                            <Setter TargetName="mark" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="bd" Property="Effect">
+                                <Setter.Value><DropShadowEffect Color="#FF3A63E0" BlurRadius="16" ShadowDepth="0" Opacity="0.7"/></Setter.Value>
+                            </Setter>
+                            <Setter Property="Foreground" Value="White"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -451,14 +509,59 @@
                 <ControlTemplate TargetType="TabControl">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="230"/>
+                            <ColumnDefinition Width="240"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <Border Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
-                            <TabPanel IsItemsHost="True" Margin="12,92,12,12"/>
+                        <Border Background="{StaticResource NavBg}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0">
+                            <TabPanel IsItemsHost="True" Margin="16,104,16,48"/>
                         </Border>
                         <ContentPresenter Grid.Column="1" ContentSource="SelectedContent"/>
                     </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ===== vnořené záložky v Nastavení (horizontální "pilulky") ===== -->
+    <Style x:Key="TopTabsControl" TargetType="TabControl">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <DockPanel>
+                        <Border DockPanel.Dock="Top" Background="{StaticResource Surface}" BorderBrush="{StaticResource Line}" BorderThickness="0,0,0,1" Padding="28,14,28,8">
+                            <WrapPanel IsItemsHost="True"/>
+                        </Border>
+                        <ContentPresenter ContentSource="SelectedContent"/>
+                    </DockPanel>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="TopTabItem" TargetType="TabItem">
+        <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Border x:Name="bd" Background="{StaticResource Surface2}" BorderBrush="{StaticResource Line}" BorderThickness="1" CornerRadius="9" Padding="14,8" Margin="0,0,8,6" Cursor="Hand">
+                        <ContentPresenter ContentSource="Header" TextElement.Foreground="{TemplateBinding Foreground}"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Surface3}"/>
+                            <Setter Property="Foreground" Value="White"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource NavBtnSelected}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="#FF7AA4FF"/>
+                            <Setter Property="Foreground" Value="White"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
