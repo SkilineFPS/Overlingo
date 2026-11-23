@@ -53,6 +53,65 @@ public static class ImagePrep
         return dst;
     }
 
+    /// <summary>Podíl pixelů s min(B,G,R) &gt;= threshold (0..1).</summary>
+    public static double LightFraction(Frame f, int threshold)
+    {
+        long n = 0; int total = f.Width * f.Height;
+        for (int i = 0; i < total; i++)
+        {
+            int o = i * 4;
+            if (Math.Min(f.Bgra[o], Math.Min(f.Bgra[o + 1], f.Bgra[o + 2])) >= threshold) n++;
+        }
+        return total == 0 ? 0 : (double)n / total;
+    }
+
+    /// <summary>
+    /// Izolace pro světlé scény (obloha, písek, sníh): pixel je text jen když je velmi světlý a zároveň výrazně světlejší
+    /// než nejtmavší pixel v okolí (radius) – tj. leží u stínu/obrysu, který hra pod titulek kreslí. Světlé plochy bez obrysu zmizí.
+    /// </summary>
+    public static Frame IsolateLightOutlined(Frame src, int minChannel = 200, int contrast = 70, int radius = 5, int padding = 12)
+    {
+        int W = src.Width, H = src.Height;
+        var m = new byte[W * H];
+        for (int i = 0; i < W * H; i++)
+        {
+            int o = i * 4;
+            m[i] = (byte)Math.Min(src.Bgra[o], Math.Min(src.Bgra[o + 1], src.Bgra[o + 2]));
+        }
+        var tmp = new byte[W * H]; var mn = new byte[W * H];
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                byte v = 255; int x0 = Math.Max(0, x - radius), x1 = Math.Min(W - 1, x + radius);
+                for (int k = x0; k <= x1; k++) if (m[y * W + k] < v) v = m[y * W + k];
+                tmp[y * W + x] = v;
+            }
+        for (int y = 0; y < H; y++)
+        {
+            int y0 = Math.Max(0, y - radius), y1 = Math.Min(H - 1, y + radius);
+            for (int x = 0; x < W; x++)
+            {
+                byte v = 255;
+                for (int k = y0; k <= y1; k++) if (tmp[k * W + x] < v) v = tmp[k * W + x];
+                mn[y * W + x] = v;
+            }
+        }
+        int w = W + 2 * padding, h = H + 2 * padding;
+        var dst = new Frame(w, h);
+        Array.Fill(dst.Bgra, (byte)255);
+        for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                int i = y * W + x;
+                if (m[i] >= minChannel && m[i] - mn[i] >= contrast)
+                {
+                    int o = ((y + padding) * w + x + padding) * 4;
+                    dst.Bgra[o] = dst.Bgra[o + 1] = dst.Bgra[o + 2] = 0;
+                }
+            }
+        return dst;
+    }
+
     /// <summary>Mřížka podílu světlých pixelů (grid 32x4) + celkový podíl. Lehké a robustní vůči pohyblivému pozadí.</summary>
     public static LightSignature LightMaskSignature(Frame f, int threshold, int gx = 32, int gy = 4)
     {

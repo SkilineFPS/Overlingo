@@ -7,7 +7,9 @@ namespace Overlingo.Core;
 /// <summary>Popis jazykového souboru rozhraní (Languages/xx.json).</summary>
 public sealed record UiLanguage(string Code, string Name, bool MachineTranslated, string File)
 {
-    public string Label => MachineTranslated ? $"{Name}  (strojový překlad – čeká na kontrolu komunitou)" : Name;
+    /// <summary>Text v nabídce: jen název jazyka (poznámka o strojovém překladu se ukazuje zvlášť pod nabídkou).</summary>
+    public string Label => Name;
+    public override string ToString() => Name;
 }
 
 /// <summary>
@@ -119,6 +121,13 @@ public static class Loc
         return codes.Contains("en") ? "en" : "cs";
     }
 
+    static void LoadStrings(string file, Dictionary<string, string> map)
+    {
+        using var d = JsonDocument.Parse(File.ReadAllText(file));
+        foreach (var p in d.RootElement.GetProperty("strings").EnumerateObject())
+            if (p.Value.ValueKind == JsonValueKind.String && (p.Value.GetString() ?? "").Length > 0) map[p.Name] = p.Value.GetString()!;
+    }
+
     public static bool Set(string code, string? dir = null)
     {
         if (code == "cs") { _map = new(); _patterns = new(); Current = "cs"; return true; }
@@ -128,8 +137,10 @@ public static class Loc
         {
             using var d = JsonDocument.Parse(File.ReadAllText(lang.File));
             var map = new Dictionary<string, string>();
-            foreach (var p in d.RootElement.GetProperty("strings").EnumerateObject())
-                if (p.Value.ValueKind == JsonValueKind.String) map[p.Name] = p.Value.GetString() ?? "";
+            // základ je angličtina: text, který v jazyku chybí, se zobrazí anglicky (ne česky), takže i částečný překlad je použitelný
+            var en = Available(dir).FirstOrDefault(a => a.Code == "en");
+            if (en != null && lang.Code != "en") LoadStrings(en.File, map);
+            LoadStrings(lang.File, map);
             _map = map; _patterns = BuildPatterns(map); Current = lang.Code; return true;
         }
         catch (Exception ex)

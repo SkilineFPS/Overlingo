@@ -27,7 +27,9 @@ public partial class MainWindow : Window
     void ApplyAdvancedUi()
     {
         var vis = S.ShowAdvancedUi ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var t in new[] { TabOcr, TabAdvanced, TabDiag, TabLogs, TabTest }) t.Visibility = vis;
+        // technické záložky a pokročilé bloky se ukážou jen v pokročilém režimu; základní rozhraní zůstává krátké
+        foreach (var t in new[] { TabOcr, TabAdvanced }) t.Visibility = vis;
+        foreach (var b in new FrameworkElement[] { AdvSource, AdvTranslation, AdvSpeech, AdvOverlay }) b.Visibility = vis;
         if (SettingsTabs.SelectedItem is TabItem sub && sub.Visibility != Visibility.Visible) SettingsTabs.SelectedItem = TabSetup;
         if (Tabs.SelectedItem is TabItem cur && cur.Visibility != Visibility.Visible) Tabs.SelectedItem = TabHome;
     }
@@ -79,6 +81,44 @@ public partial class MainWindow : Window
         try { S.Save(); } catch { }
     }
 
+    void ShowPerf()
+    {
+        var p = PerformancePresets.Detect(S);
+        _ui2 = true;
+        RbPerfEco.IsChecked = p == PerformancePreset.Eco; RbPerfBalanced.IsChecked = p == PerformancePreset.Balanced; RbPerfFast.IsChecked = p == PerformancePreset.Fast;
+        _ui2 = false;
+        PerfNote.Text = Loc.T(p == PerformancePreset.Custom ? "Vlastní hodnoty (nastaveno v pokročilých nastaveních). Výběrem předvolby se přepíšou." : "");
+    }
+    bool _ui2;
+
+    void OnPerfChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_ui || _ui2) return;
+        var p = RbPerfEco.IsChecked == true ? PerformancePreset.Eco : RbPerfFast.IsChecked == true ? PerformancePreset.Fast : PerformancePreset.Balanced;
+        CollectUi();
+        PerformancePresets.Apply(S, p);
+        _c.SetSettings(S); LoadUi();
+        SetStatus("Výkon nastaven.");
+    }
+
+    void OnResetTuning(object sender, RoutedEventArgs e)
+    {
+        CollectUi();
+        PerformancePresets.ResetTuning(S);
+        _c.SetSettings(S); LoadUi();
+        SetStatus("Doporučené hodnoty výkonu a OCR obnoveny.");
+    }
+
+    // ================= nastavení zapamatované pro každou hru =================
+    readonly GameProfiles _games = new();
+    string _gameApplied = "";
+
+    void SaveGameProfile()
+    {
+        try { if (S.AutoGameProfiles && S.Source == SourceKind.Program && !string.IsNullOrWhiteSpace(S.ProgramName)) _games.Save(S.ProgramName, S); }
+        catch (Exception ex) { AppLog.Warn("Profil hry se nepodařilo uložit: " + ex.Message); }
+    }
+
     void SetCheck(TextBlock tb, bool ok, string text, bool warnIfNot = true)
     {
         tb.Text = (ok ? "✔  " : "○  ") + text;
@@ -87,7 +127,7 @@ public partial class MainWindow : Window
 
     void UpdateQuickSetup()
     {
-        SetCheck(ChkOcr, _c.OcrAvailable, _c.OcrAvailable ? Loc.T("Rozpoznávání textu (OCR) je připravené") : Loc.T("Chybí jazykový balíček Windows OCR – viz Úvodní nastavení"));
+        SetCheck(ChkOcr, _c.OcrAvailable, _c.OcrAvailable ? Loc.T("Rozpoznávání textu (OCR) je připravené") : Loc.T("Chybí jazykový balíček Windows OCR – viz Nastavení → Obecné"));
         bool srcOk = S.Source switch
         {
             SourceKind.Window => !string.IsNullOrWhiteSpace(S.WindowMatch),
@@ -98,10 +138,18 @@ public partial class MainWindow : Window
         SetCheck(ChkTranslator, true, Loc.T("Překladač: ") + _c.Service.Translator.Name);
     }
 
+    void UpdateUiLangNote()
+    {
+        UiLangNote.Text = CbUiLang.SelectedItem is UiLanguage { MachineTranslated: true }
+            ? "Strojový překlad – čeká na kontrolu komunitou. Chybějící texty se zobrazí anglicky."
+            : "";
+    }
+
     void OnUiLangChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_ui || CbUiLang.SelectedItem is not UiLanguage ul || ul.Code == Loc.Current) return;
         Loc.Set(ul.Code);
+        UpdateUiLangNote();
         UiLocalizer.ApplyAll();
         SetStatus(Loc.T("Jazyk rozhraní změněn. Zbylé texty se obnoví po restartu aplikace."));
     }
@@ -182,12 +230,19 @@ public partial class MainWindow : Window
     /// <summary>Zdroj „Program“: když se hra spustí, překlad se zapne; po ručním zastavení se to znovu nestane, dokud hra neskončí.</summary>
     async Task CheckProgramAsync()
     {
-        if (_progBusy || !S.AutoStartWhenProgramRuns || S.Source != SourceKind.Program) return;
+        if (_progBusy || S.Source != SourceKind.Program) return;
+        if (!S.AutoStartWhenProgramRuns && !S.AutoGameProfiles) return;
         _progBusy = true;
         try
         {
             bool running = SourceFactory.FindProgramWindow(S.ProgramName) != null;
-            if (!running) { _manualStop = false; return; }
+            if (!running) { _manualStop = false; _gameApplied = ""; return; }
+            if (S.AutoGameProfiles && !string.Equals(_gameApplied, S.ProgramName, StringComparison.OrdinalIgnoreCase))
+            {   // hra se právě objevila: vrátí se její oblast titulků, vzhled a výkon
+                _gameApplied = S.ProgramName;
+                if (_games.TryApply(S.ProgramName, S)) { _c.SetSettings(S); LoadUi(); SetStatus($"Použito uložené nastavení hry „{S.ProgramName}“."); }
+            }
+            if (!S.AutoStartWhenProgramRuns) return;
             if (!_c.TranslationEnabled && !_manualStop)
             {
                 bool ok = await _c.StartTranslationAsync();
@@ -312,13 +367,13 @@ public partial class MainWindow : Window
         TbMinLetters.Text = s.MinLetters.ToString(); CbSkipNoText.IsChecked = s.SkipWhenNoLightText;
         CbTesseract.IsChecked = s.UseTesseract; TbTessPath.Text = s.TesseractPath; TessInfo.Text = _c.TesseractInfo;
         OcrEngineInfo.Text = "OCR engine: " + _c.OcrInfo;
-        CbTranslator.SelectedIndex = (int)s.Translator;
+        CbTranslator.SelectedIndex = (int)s.Translator; if (_ui) OnTranslatorChanged(this, null!);
         CbContext.IsChecked = s.UseContext; TbCtxLines.Text = s.ContextLines.ToString();
         UpdateKeyStates();
         TbFont.Text = s.FontFamily; TbFontSize.Text = s.FontSize.ToString(CultureInfo.InvariantCulture);
         TbColor.Text = s.TextColor; TbEnColor.Text = s.EnglishColor; SlOpacity.Value = s.BackgroundOpacity;
         TbMaxLines.Text = s.MaxLines.ToString(); TbSeconds.Text = s.DisplaySeconds.ToString(CultureInfo.InvariantCulture);
-        CbAutoAbove.IsChecked = s.OverlayAutoAbove; CbCover.IsChecked = s.OverlayCoverOriginal; CbSpeculative.IsChecked = s.SpeculativeTranslate; CbShowEn.IsChecked = s.ShowEnglish; CbClickThrough.IsChecked = s.ClickThrough; CbExclude.IsChecked = s.ExcludeOverlayFromCapture;
+        CbAutoAbove.IsChecked = s.OverlayAutoAbove; CbCover.IsChecked = s.OverlayCoverOriginal; CbSpeculative.IsChecked = s.SpeculativeTranslate; CbIgnoreSide.IsChecked = s.IgnoreSideLines; CbShowEn.IsChecked = s.ShowEnglish; CbClickThrough.IsChecked = s.ClickThrough; CbExclude.IsChecked = s.ExcludeOverlayFromCapture;
         RbScopeDialog.IsChecked = s.Scope == TranslationScope.DialogOnly; RbScopeFull.IsChecked = s.Scope == TranslationScope.FullScreen;
         CbAdaptive.IsChecked = s.AdaptiveInterval; CbStripJunk.IsChecked = s.StripJunkTokens; CbVerbose.IsChecked = s.VerboseLog;
         TbCacheMax.Text = s.CacheMax.ToString(); TbHttpTimeout.Text = s.HttpTimeoutSec.ToString(); TbRetry.Text = s.RetryCount.ToString();
@@ -336,12 +391,12 @@ public partial class MainWindow : Window
         CbSrcLang.SelectedItem = Languages.Find(s.SourceLang); CbTgtLang.SelectedItem = Languages.Find(s.TargetLang);
         TbGlossary.Text = s.Glossary;
         TbGeminiModel.Text = s.GeminiModel; TbAiUrl.Text = s.AiBaseUrl; TbAiModel.Text = s.AiModel; TbAiContext.Text = s.AiGameContext;
-        var langs = Loc.Available(); CbUiLang.ItemsSource = langs; CbUiLang.SelectedItem = langs.FirstOrDefault(l => l.Code == Loc.Current);
+        var langs = Loc.Available(); CbUiLang.ItemsSource = langs; CbUiLang.SelectedItem = langs.FirstOrDefault(l => l.Code == Loc.Current); UpdateUiLangNote();
         CbAdvancedUi.IsChecked = s.ShowAdvancedUi; ApplyAdvancedUi(); FillAbout();
         CbAutostart.IsChecked = Autostart.IsEnabled(); CbStartTranslate.IsChecked = s.StartTranslationOnLaunch; CbAutoProgram.IsChecked = s.AutoStartWhenProgramRuns;
         CbWeb.IsChecked = s.WebEnabled; TbWebPort.Text = s.WebPort.ToString();
         WebUrlText.Text = s.WebEnabled ? $"Adresa pro OBS: http://127.0.0.1:{s.WebPort}/" : "";
-        RefreshProfiles();
+        RefreshProfiles(); CbGameProfiles.IsChecked = s.AutoGameProfiles; ShowPerf();
     }
 
     static bool TryD(string t, out double v) => double.TryParse((t ?? "").Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out v);
@@ -385,7 +440,7 @@ public partial class MainWindow : Window
         s.BackgroundOpacity = SlOpacity.Value;
         s.MaxLines = I(TbMaxLines, s.MaxLines, bad, "Max. titulků");
         s.DisplaySeconds = D(TbSeconds, s.DisplaySeconds, bad, "Doba zobrazení");
-        s.OverlayAutoAbove = CbAutoAbove.IsChecked == true; s.OverlayCoverOriginal = CbCover.IsChecked == true; s.SpeculativeTranslate = CbSpeculative.IsChecked == true; s.ShowEnglish = CbShowEn.IsChecked == true; s.ClickThrough = CbClickThrough.IsChecked == true; s.ExcludeOverlayFromCapture = CbExclude.IsChecked == true;
+        s.OverlayAutoAbove = CbAutoAbove.IsChecked == true; s.OverlayCoverOriginal = CbCover.IsChecked == true; s.SpeculativeTranslate = CbSpeculative.IsChecked == true; s.IgnoreSideLines = CbIgnoreSide.IsChecked == true; s.ShowEnglish = CbShowEn.IsChecked == true; s.ClickThrough = CbClickThrough.IsChecked == true; s.ExcludeOverlayFromCapture = CbExclude.IsChecked == true;
         s.Scope = RbScopeFull.IsChecked == true ? TranslationScope.FullScreen : TranslationScope.DialogOnly;
         s.AdaptiveInterval = CbAdaptive.IsChecked == true; s.StripJunkTokens = CbStripJunk.IsChecked == true; s.VerboseLog = CbVerbose.IsChecked == true;
         s.CacheMax = I(TbCacheMax, s.CacheMax, bad, "Velikost cache"); s.HttpTimeoutSec = I(TbHttpTimeout, s.HttpTimeoutSec, bad, "Časový limit");
@@ -406,6 +461,7 @@ public partial class MainWindow : Window
         s.StartTranslationOnLaunch = CbStartTranslate.IsChecked == true; s.AutoStartWhenProgramRuns = CbAutoProgram.IsChecked == true; s.AutoStartWithWindows = CbAutostart.IsChecked == true;
         try { if (Autostart.IsEnabled() != s.AutoStartWithWindows) Autostart.Set(s.AutoStartWithWindows); }
         catch (Exception ex) { bad.Add("Autostart s Windows (" + ex.Message + ")"); }
+        s.AutoGameProfiles = CbGameProfiles.IsChecked == true;
         s.WebEnabled = CbWeb.IsChecked == true; s.WebPort = I(TbWebPort, s.WebPort, bad, "Port OBS serveru");
         foreach (var (tb, name) in new[] { (TbColor, "Barva textu"), (TbEnColor, "Barva angl. textu") })
         {
@@ -422,6 +478,7 @@ public partial class MainWindow : Window
         var before = (SourceKey(), S.Scope);
         var bad = CollectUi();
         _c.SetSettings(S);
+        SaveGameProfile();
         LoadUi();
         ApplyHotkeys();
         if (_c.TranslationEnabled && !before.Equals((SourceKey(), S.Scope)))
@@ -566,7 +623,7 @@ public partial class MainWindow : Window
         SetStatus(CbCapture.Items.Count > 1 ? $"Nalezeno zařízení: {CbCapture.Items.Count - 1}." : "Žádné záznamové zařízení nenalezeno – je připojené a nepoužívá ho jiný program ve výhradním režimu?");
     }
 
-    sealed record WindowChoice(string Label, string Match);
+    sealed record WindowChoice(string Label, string Match) { public override string ToString() => Label; }
 
     void RefreshSourceLists()
     {
@@ -662,8 +719,13 @@ public partial class MainWindow : Window
     // ================= překlad =================
     void OnTranslatorChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (!_ui || GoogleWarn == null) return;
-        GoogleWarn.Visibility = CbTranslator.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (!_ui || GoogleWarn == null || PnlAi == null) return;
+        int t = CbTranslator.SelectedIndex;
+        GoogleWarn.Visibility = t == 0 ? Visibility.Visible : Visibility.Collapsed;
+        PnlGoogleCloud.Visibility = t == 1 ? Visibility.Visible : Visibility.Collapsed;   // ukáže se jen to, co vybraný překladač potřebuje
+        PnlDeepL.Visibility = t == 2 ? Visibility.Visible : Visibility.Collapsed;
+        PnlGemini.Visibility = t == 3 ? Visibility.Visible : Visibility.Collapsed;
+        PnlAi.Visibility = t == 4 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void UpdateKeyStates()
@@ -928,7 +990,7 @@ public partial class MainWindow : Window
     {
         if (_closing) { base.OnClosing(e); return; }
         e.Cancel = true; _closing = true;
-        try { CollectUi(); } catch { }
+        try { CollectUi(); SaveGameProfile(); } catch { }
         _dash.Stop(); _hot?.Dispose();
         await _c.ShutdownAsync();
         _c.Overlay.Close(); _c.ScreenOverlay.Close();

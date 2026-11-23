@@ -3,7 +3,7 @@ setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
 set VER=%1
-if "%VER%"=="" set VER=1.0.0
+if "%VER%"=="" set VER=1.0.4
 echo === Overlingo %VER%: sestavuji samostatnou verzi (bez nutnosti instalovat .NET) ===
 if exist publish rmdir /s /q publish
 dotnet publish Overlingo.App\Overlingo.App.csproj -c Release -r win-x64 --self-contained true -p:Version=%VER% -o publish

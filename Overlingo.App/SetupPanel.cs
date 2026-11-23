@@ -72,7 +72,7 @@ internal static class SetupPanel
         bool tess = c.TesseractInfo.StartsWith("Tesseract nalezen", StringComparison.OrdinalIgnoreCase);
         Set(stTess, tess, tess ? "nalezen" : "nenalezen (volitelné)"); root.Children.Add(rTess);
 
-        var (stCap, rCap) = Row("Záznamová karta", "Pokud hrajete z konzole přes záznamovou kartu, program ji najde automaticky. Zdroj „Záznamová karta“ vybíráte v záložce Zdroj obrazu.", null);
+        var (stCap, rCap) = Row("Záznamová karta", "Pokud hrajete z konzole přes záznamovou kartu, program ji najde automaticky. Zdroj „Záznamová karta“ vybíráte v záložce Přehled.", null);
         Set(stCap, false, "hledám…"); stCap.Foreground = Muted; root.Children.Add(rCap);
         _ = FillCardsAsync(stCap);
 

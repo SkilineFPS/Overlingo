@@ -10,6 +10,8 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RootNamespace>Overlingo.App</RootNamespace>
     <AssemblyName>Overlingo</AssemblyName>
+    <!-- Výchozí verze pro lokální build; CI a make-installer ji přepíšou přes -p:Version. -->
+    <Version>1.0.4</Version>
     <ApplicationIcon>Assets\overlingo.ico</ApplicationIcon>
     <NoWarn>$(NoWarn);SYSLIB1054;CA1416;CS8618</NoWarn>
   </PropertyGroup>

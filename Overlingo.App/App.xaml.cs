@@ -11,7 +11,7 @@ public partial class App : Application
         DispatcherUnhandledException += (_, e) =>
         {
             AppLog.Error($"Neošetřená chyba: {e.Exception}");
-            MessageBox.Show(Loc.T($"Neočekávaná chyba:\n{e.Exception.Message}\n\nDetail je v záložce Logy / v {AppLog.LogDir}"), "Overlingo", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(Loc.T($"Neočekávaná chyba:\n{e.Exception.Message}\n\nDetail je v záložce Řešení problémů / v {AppLog.LogDir}"), "Overlingo", MessageBoxButton.OK, MessageBoxImage.Error);
             e.Handled = true;
         };
         try

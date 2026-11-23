@@ -28,20 +28,27 @@ internal sealed class TesseractOcr
     }
 
     public async Task<string> RecognizeAsync(Frame frame)
+        => (await RunAsync(frame, false).ConfigureAwait(false)).Replace('\n', ' ').Replace('\r', ' ');
+
+    /// <summary>Řádky s polohou (zlomky snímku) – aby šly projít výběrem dialogu stejně jako řádky z Windows OCR.</summary>
+    public async Task<List<OcrLine>> RecognizeLinesAsync(Frame frame)
+        => TesseractTsv.ParseLines(await RunAsync(frame, true).ConfigureAwait(false), frame.Width, frame.Height);
+
+    async Task<string> RunAsync(Frame frame, bool tsv)
     {
         var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"gtalt_{Guid.NewGuid():N}.bmp");
         try
         {
             await File.WriteAllBytesAsync(tmp, ImagePrep.ToBmp24(frame)).ConfigureAwait(false);
             var psi = new ProcessStartInfo(Path) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true, StandardOutputEncoding = System.Text.Encoding.UTF8 };
-            foreach (var a in new[] { tmp, "stdout", "-l", "eng", "--psm", "6" }) psi.ArgumentList.Add(a);
+            foreach (var a in tsv ? new[] { tmp, "stdout", "-l", "eng", "--psm", "6", "tsv" } : new[] { tmp, "stdout", "-l", "eng", "--psm", "6" }) psi.ArgumentList.Add(a);
             using var p = Process.Start(psi) ?? throw new InvalidOperationException("tesseract.exe se nespustil.");
             var outTask = p.StandardOutput.ReadToEndAsync();
             _ = p.StandardError.ReadToEndAsync();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4));
             try { await p.WaitForExitAsync(cts.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) { try { p.Kill(true); } catch { } return ""; }
-            return (await outTask.ConfigureAwait(false)).Replace('\n', ' ').Replace('\r', ' ');
+            return await outTask.ConfigureAwait(false);
         }
         finally { try { File.Delete(tmp); } catch { } }
     }

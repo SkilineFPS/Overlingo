@@ -87,7 +87,12 @@ public sealed class AppController
         { UseContext = Settings.UseContext, ContextLines = Settings.ContextLines, RetryCount = Settings.RetryCount,
           LangTag = Languages.PairTag(Settings.SourceLang, Settings.TargetLang), Glossary = Glossary.Parse(Settings.Glossary), Corrections = Corrections };
         Pipeline = new TranslationPipeline(_ocr ?? (IOcrEngine)new NoOcr(), Service, () => Settings);
-        Pipeline.SecondOcr = f => _tess != null ? _tess.RecognizeAsync(f) : Task.FromResult("");
+        Pipeline.SecondOcr = async f =>
+        {   // Tesseract čte celý výřez (i úkol mise pod dialogem) → řádky projdou stejným výběrem dialogu jako u Windows OCR
+            if (_tess == null) return "";
+            if (_ocr == null) return await _tess.RecognizeAsync(f);
+            return _ocr.SelectText(await _tess.RecognizeLinesAsync(f));
+        };
         ScreenPipeline = new ScreenTranslationPipeline((IScreenOcr?)_ocr ?? new NoScreenOcr(), Service, () => Settings);
         Overlay = new OverlayWindow();
         ScreenOverlay = new ScreenOverlayWindow();
@@ -191,15 +196,19 @@ public sealed class AppController
     }
 
     /// <summary>Zjistí obraz hry (černé pruhy) z celého snímku; vrací true, když se oblast znatelně změnila.</summary>
+    readonly GameAreaStabilizer _gaStab = new();
     public bool DetectGameArea(Frame full)
     {
         var det = Settings.AutoGameArea ? (GameAreaDetector.Detect(full) ?? RegionF.Full) : RegionF.Full;
-        var o = Settings.GameArea;
-        bool changed = Math.Abs(det.X - o.X) > 0.01 || Math.Abs(det.Y - o.Y) > 0.01 || Math.Abs(det.W - o.W) > 0.01 || Math.Abs(det.H - o.H) > 0.01;
+        if (!Settings.AutoGameArea) _gaStab.Reset();
+        bool changed;
+        if (!Settings.AutoGameArea) changed = Math.Abs(Settings.GameArea.W - 1) > 0.001 || Math.Abs(Settings.GameArea.H - 1) > 0.001 || Settings.GameArea.X != 0 || Settings.GameArea.Y != 0;
+        else changed = _gaStab.Update(det);
         if (changed)
         {
-            Settings.GameArea = det;
-            AppLog.Info($"Obraz hry: {(det.W >= 0.999 && det.H >= 0.999 ? "celý snímek" : $"x {det.X:0.000}, y {det.Y:0.000}, šířka {det.W:0.000}, výška {det.H:0.000} (černé pruhy ořezány)")}");
+            var a = Settings.AutoGameArea ? _gaStab.Current : RegionF.Full;
+            Settings.GameArea = a;
+            AppLog.Info($"Obraz hry: {(a.W >= 0.999 && a.H >= 0.999 ? "celý snímek" : $"x {a.X:0.000}, y {a.Y:0.000}, šířka {a.W:0.000}, výška {a.H:0.000} (černé pruhy ořezány)")}");
         }
         return changed;
     }
@@ -334,6 +343,7 @@ public sealed class AppController
         Service.LangTag = Languages.PairTag(s.SourceLang, s.TargetLang);
         Service.Glossary = Glossary.Parse(s.Glossary);
         _coverKey = null;
+        if (_ocr != null) { _ocr.FilterSideLines = s.IgnoreSideLines; _ocr.ResetDialogLock(); }
         ApplySpeech(s);
         Overlay.ApplySettings(s); ScreenOverlay.ApplySettings(s);
         PlaceOverlayFromSettings(false); PlaceScreenOverlay();

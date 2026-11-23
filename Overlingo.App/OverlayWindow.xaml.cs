@@ -89,10 +89,14 @@ public partial class OverlayWindow : Window
     /// zakrývá originál, dokud nepřijde překlad (nejdéle 1,5 s).</summary>
     public void BeginCover()
     {
+        var now = DateTime.UtcNow;
+        if (now < _coverCooldownUntil) return;            // po vypršení pojistky se prázdný box hned znovu nezobrazuje (měnící se text)
         _entries.RemoveAll(e => !e.IsError);
-        _preCover = true; _preCoverAt = DateTime.UtcNow;
+        if (!_preCover) _preCoverAt = now;                // opakované hlášení nového originálu nesmí pojistku prodlužovat
+        _preCover = true;
         Render();
     }
+    DateTime _coverCooldownUntil;
     public void EndCover() { if (!_preCover) return; _preCover = false; Render(); }
     /// <summary>Režim „přes originál“: černý neprůhledný box aspoň tak velký jako původní titulek (rozměry v pixelech), vystředěný v okně.</summary>
     public void SetCover(bool on, double minWpx, double minHpx)
@@ -160,7 +164,7 @@ public partial class OverlayWindow : Window
     public void AddSubtitle(string en, string cs, bool replaceLast = false, bool sourceGone = false)
     {
         var now = DateTime.UtcNow;
-        _lastVisible = now; _preCover = false;
+        _lastVisible = now; _preCover = false; _coverCooldownUntil = default;
         _entries.RemoveAll(e => e.IsError);
         if (replaceLast && _entries.Count > 0) _entries.RemoveAt(_entries.Count - 1);
         else foreach (var e in _entries.Where(e => e.Live))
@@ -210,7 +214,7 @@ public partial class OverlayWindow : Window
         // pojistka: když původní titulek nebyl 2,5 s vidět, překlad nesmí viset dál (zmeškaná událost „zmizel“)
         if (!HoldLive && _entries.Any(e => e.Live) && (now - _lastVisible).TotalSeconds > 2.5) OnSourceCleared();
         bool changed = _entries.RemoveAll(e => e.Expiry <= now) > 0;
-        if (_preCover && (now - _preCoverAt).TotalSeconds > 1.5) { _preCover = false; changed = true; }   // pojistka: překlad nedorazil (šum / titulek zmizel)
+        if (_preCover && (now - _preCoverAt).TotalSeconds > 1.5) { _preCover = false; changed = true; _coverCooldownUntil = now.AddSeconds(3); }   // pojistka: překlad nedorazil (šum / titulek zmizel)
         if (changed) Render();
     }
 

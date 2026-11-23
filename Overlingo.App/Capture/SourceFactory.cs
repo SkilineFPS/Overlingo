@@ -44,7 +44,7 @@ internal static class SourceFactory
             case SourceKind.Window:
             {
                 var w = FindWindow(s.WindowMatch)
-                    ?? throw new InvalidOperationException(string.IsNullOrWhiteSpace(s.WindowMatch) ? "Není vybráno žádné okno – zvolte ho v záložce Zdroj obrazu." : $"Okno obsahující „{s.WindowMatch}“ nebylo nalezeno (je spuštěná hra a není minimalizovaná?).");
+                    ?? throw new InvalidOperationException(string.IsNullOrWhiteSpace(s.WindowMatch) ? "Není vybráno žádné okno – zvolte ho v záložce Přehled." : $"Okno obsahující „{s.WindowMatch}“ nebylo nalezeno (je spuštěná hra a není minimalizovaná?).");
                 var h = w.Handle;
                 return new WgcSource(() => CaptureItemFactory.ForWindow(h), $"Okno: {w.Title} [{w.ProcessName}]");
             }

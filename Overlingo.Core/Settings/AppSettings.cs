@@ -67,8 +67,12 @@ public sealed class AppSettings
     public string UiLang { get; set; } = "en";
     /// <summary>Zobrazit i technické záložky (OCR, Zkratky, Pokročilé, Diagnostika, Logy, Test). Výchozí: jednoduché rozhraní.</summary>
     public bool ShowAdvancedUi { get; set; }
+    /// <summary>Pamatovat oblast titulků, vzhled overlaye a výkon zvlášť pro každou hru (zdroj „Program“).</summary>
+    public bool AutoGameProfiles { get; set; } = true;
     /// <summary>Verze migrace jazyka rozhraní (1 = výchozí angličtina; starší uložené „cs“ bylo jen automatické, ne volba uživatele).</summary>
     public int UiLangVersion { get; set; }
+    /// <summary>Verze migrace výchozích hodnot filtru dialogu (1 = „Ignorovat řádky mimo dialog“ zapnuto i u starých nastavení).</summary>
+    public int DialogFilterVersion { get; set; }
     /// <summary>Zjištěný obraz hry (za běhu, neukládá se).</summary>
     [JsonIgnore] public RegionF GameArea { get; set; } = RegionF.Full;
     /// <summary>Oblast titulků jako zlomky celého snímku (s ohledem na obraz hry).</summary>
@@ -80,7 +84,14 @@ public sealed class AppSettings
             var r = (Region ?? RegionF.DefaultSubtitleBand).Clamp();
             if (!AutoGameArea) return r;
             var g = GameArea ?? RegionF.Full;
-            return new RegionF { X = g.X + r.X * g.W, Y = g.Y + r.Y * g.H, W = r.W * g.W, H = r.H * g.H }.Clamp();
+            var m = new RegionF { X = g.X + r.X * g.W, Y = g.Y + r.Y * g.H, W = r.W * g.W, H = r.H * g.H }.Clamp();
+            if (g.W >= 0.999 && g.H >= 0.999) return m;
+            // Titulky bývají v pevné poloze celého snímku (nezávisle na černých pruzích). Oblast kreslená na celém snímku
+            // proto po ořezu pruhů nesmí ztratit okraj: použije se sjednocení „relativní“ a „absolutní“ oblasti, ořezané na obraz hry.
+            double x0 = Math.Max(g.X, Math.Min(m.X, r.X)), y0 = Math.Max(g.Y, Math.Min(m.Y, r.Y));
+            double x1 = Math.Min(g.X + g.W, Math.Max(m.X + m.W, r.X + r.W)), y1 = Math.Min(g.Y + g.H, Math.Max(m.Y + m.H, r.Y + r.H));
+            if (x1 - x0 < 0.01 || y1 - y0 < 0.01) return m;
+            return new RegionF { X = x0, Y = y0, W = x1 - x0, H = y1 - y0 }.Clamp();
         }
     }
 
@@ -146,6 +157,8 @@ public sealed class AppSettings
     public string HkSpeech { get; set; } = "F4";
     public string HkVolUp { get; set; } = "Ctrl+PageUp";
     public string HkVolDown { get; set; } = "Ctrl+PageDown";
+    /// <summary>Ignorovat řádky mimo dialog (úkoly mise, nápovědy) – vybere se jen blok dialogových titulků.</summary>
+    public bool IgnoreSideLines { get; set; } = true;
     public bool UseContext { get; set; } = true;
     public int ContextLines { get; set; } = 2;
 
@@ -177,6 +190,7 @@ public sealed class AppSettings
     public void Normalize()
     {
         if (UiLangVersion < 1) { UiLang = "en"; UiLangVersion = 1; }
+        if (DialogFilterVersion < 1) { IgnoreSideLines = true; DialogFilterVersion = 1; }
         IntervalMs = Math.Clamp(IntervalMs, 100, 3000);
         WhiteThreshold = Math.Clamp(WhiteThreshold, 60, 250);
         Upscale = Math.Clamp(Upscale, 1, 3);

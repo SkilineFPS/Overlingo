@@ -62,7 +62,7 @@ Requirements: Windows 10/11 x64. The release build is self-contained, no separat
 
 ## Build from source
 
-Install the .NET 10 SDK, then run `build.cmd` (runs the tests and builds to `publish`) and `run.cmd`. `make-installer.cmd 1.0.0` creates a self-contained build, a portable zip and, if [Inno Setup 6](https://jrsoftware.org/isdl.php) is installed, the installer. A GitHub Actions workflow (`.github/workflows/release.yml`) builds releases for `v*` tags.
+Install the .NET 10 SDK, then run `build.cmd` (runs the tests and builds to `publish`) and `run.cmd`. `make-installer.cmd 1.0.4` creates a self-contained build, a portable zip and, if [Inno Setup 6](https://jrsoftware.org/isdl.php) is installed, the installer. A GitHub Actions workflow (`.github/workflows/release.yml`) builds releases for `v*` tags.
 
 ## Status
 

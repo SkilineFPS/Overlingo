@@ -160,6 +160,7 @@ public sealed class TranslationPipeline
         var crop = await src.GrabAsync(s.EffectiveRegion).ConfigureAwait(false);
         if (crop == null) return;
 
+        if (_ocr is IOcrFrameInfo fi) fi.FrameRegion = s.EffectiveRegion;
         var sig = ImagePrep.LightMaskSignature(crop, s.WhiteThreshold);
         if (s.SkipWhenNoLightText && sig.LightFraction < 0.002)
         {
@@ -190,7 +191,7 @@ public sealed class TranslationPipeline
         if (TextTools.IsPlausible(TextTools.Normalize(cleaned), s.MinLetters))
         {
             var rg = s.EffectiveRegion;
-            if (_ocr is IOcrBounds ob && ob.LastBounds is { W: > 0, H: > 0 } lb)
+            if (_ocr is IOcrBounds ob && (ob.BoundsOf(res.Text) ?? ob.LastBounds) is { W: > 0, H: > 0 } lb)
             {   // poloha textu podle samotného OCR – neovlivní ji světlé předměty ve scéně
                 _lastBox = new RegionF { X = rg.X + lb.X * rg.W, Y = rg.Y + lb.Y * rg.H, W = lb.W * rg.W, H = lb.H * rg.H };
             }

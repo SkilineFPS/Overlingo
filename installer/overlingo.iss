@@ -1,4 +1,4 @@
-; Inno Setup – instalátor Overlingo. Sestavení: ISCC /DAppVersion=1.0.0 installer\overlingo.iss
+; Inno Setup – instalátor Overlingo. Sestavení: ISCC /DAppVersion=1.0.4 installer\overlingo.iss
 ; (předpokládá složku "publish" z `dotnet publish ... -o publish` v kořeni repozitáře)
 #ifndef AppVersion
   #define AppVersion "0.0.0-dev"

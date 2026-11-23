@@ -25,7 +25,15 @@ public interface ICaptureSource : IAsyncDisposable
 }
 
 /// <summary>Volitelné rozšíření OCR enginu: poloha posledního rozpoznaného textu jako zlomky posledního snímku (přesnější než hledání světlých pixelů).</summary>
-public interface IOcrBounds { RegionF? LastBounds { get; } }
+public interface IOcrBounds
+{
+    RegionF? LastBounds { get; }
+    /// <summary>Poloha textu, který engine v některém z posledních volání skutečně vrátil (normalizovaný text) – vybraný výsledek nemusí být z posledního volání.</summary>
+    RegionF? BoundsOf(string normalizedText) => LastBounds;
+}
+
+/// <summary>Volitelné: pipeline sdělí enginu, kterou část obrazu hry právě čte (zlomky obrazu hry), aby si polohu dialogu pamatoval nezávisle na ořezu.</summary>
+public interface IOcrFrameInfo { RegionF FrameRegion { get; set; } }
 
 public interface IOcrEngine
 {

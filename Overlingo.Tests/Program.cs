@@ -185,6 +185,26 @@ T("GameArea: černé pruhy se najdou, bez pruhů = null", async () =>
     var e = s.EffectiveRegion;
     True(Math.Abs(e.Y - (a.Y + 0.5 * a.H)) < 1e-9 && Math.Abs(e.H - 0.5 * a.H) < 1e-9, "EffectiveRegion");
     s.AutoGameArea = false; Eq(0.5, s.EffectiveRegion.Y, "vypnuto");
+    // regrese: titulek v cutscéně (y≈0,897 celého snímku) nesmí po ořezu pruhů vypadnout z oblasti
+    var cut = new AppSettings { AutoGameArea = true, GameArea = new RegionF { X = 0, Y = 0.056, W = 1, H = 0.889 },
+        Region = new RegionF { X = 0.193, Y = 0.6656, W = 0.6186, H = 0.2747 } };
+    var er = cut.EffectiveRegion;
+    True(er.Y + er.H >= 0.94 - 1e-9 && er.Y <= 0.66 && er.Y + er.H <= 0.945 + 1e-9, $"cutscéna: {er.Y}+{er.H}");
+    await Task.CompletedTask;
+});
+T("GameAreaStabilizer: šum v pruzích se ignoruje, skutečná změna až po potvrzení", async () =>
+{
+    var st = new GameAreaStabilizer();
+    RegionF R(double x, double y, double w, double h) => new RegionF { X = x, Y = y, W = w, H = h };
+    True(!st.Update(R(0, 0.056, 1, 0.889)), "první měření ještě nestačí");
+    True(st.Update(R(0, 0.056, 1, 0.889)), "druhé shodné přijme");
+    True(!st.Update(R(0, 0.044, 1, 0.900)), "šum 0,012 se ignoruje");
+    True(!st.Update(R(0.021, 0.056, 0.979, 0.889)), "šum 0,021 se ignoruje");
+    True(!st.Update(RegionF.Full), "jednorázový celý snímek nepřepne");
+    True(!st.Update(R(0, 0.056, 1, 0.889)), "návrat k pruhům = pořád stejné");
+    True(!st.Update(RegionF.Full), "celý snímek poprvé");
+    True(st.Update(RegionF.Full), "celý snímek podruhé přepne");
+    Eq(1.0, st.Current.W, "W");
     await Task.CompletedTask;
 });
 T("Opravy překladu mají přednost a přežijí restart", async () =>
@@ -227,7 +247,7 @@ T("Lokalizace: výběr jazyka, náhrada a pád zpět na češtinu; en.json pokr�
     Eq("Mode: everything on screen.", Loc.T("Režim: vše na obrazovce."), "vzor + přeložená hodnota");
     Eq("12 ms (average 10 ms, method: Auto)", Loc.T("12 ms (průměr 10 ms, metoda: Auto)"), "hodnota dashboardu");
     Eq("Saved, but these values were invalid and kept their old values: Upscale, Retries", Loc.T("Uloženo, ale tyto hodnoty byly neplatné a zůstaly původní: Zvětšení, Opakování"), "seznam hodnot");
-    Eq("Unexpected error:\nboom\n\nDetails are in the Logs tab / in C:\\L", Loc.T("Neočekávaná chyba:\nboom\n\nDetail je v záložce Logy / v C:\\L"), "víceřádkový vzor");
+    Eq("Unexpected error:\nboom\n\nDetails are in the Troubleshooting tab / in C:\\L", Loc.T("Neočekávaná chyba:\nboom\n\nDetail je v záložce Řešení problémů / v C:\\L"), "víceřádkový vzor");
     Loc.Set("en", dir);
     Eq("12 ms (95%: 30 ms, last 9 ms, n=40)", Loc.T("12 ms (95 %: 30 ms, poslední 9 ms, n=40)"), "vzor latence");
     Eq("Could not open the support link: boom", Loc.T("Odkaz na podporu se nepodařilo otevřít: boom"), "vzor podpory");
@@ -276,7 +296,7 @@ T("LightBounds: jasné prvky scény mimo text se ignorují", async () =>
 T("OcrStrategy: druhý engine se použije jen při slabém čtení", async () =>
 {
     var f = new Frame(60, 20); for (int i = 0; i < 60 * 20; i++) { f.Bgra[i * 4] = f.Bgra[i * 4 + 1] = f.Bgra[i * 4 + 2] = 255; f.Bgra[i * 4 + 3] = 255; }
-    var o = new OcrOptions { Mode = OcrMode.Auto, Upscale = 1 };
+    var o = new OcrOptions { Mode = OcrMode.Auto, Upscale = 1, BrightFraction = 0 };
     int called = 0;
     Task<string> Second(Frame _) { called++; return Task.FromResult("Hello there my friend"); }
     var weak = await OcrStrategy.RunAsync(f, o, _ => Task.FromResult("He11o tbere rny fr1end x7"), Second);
@@ -337,18 +357,214 @@ Console.WriteLine("== OcrStrategy");
 T("Auto: dobrý izolovaný výsledek stačí jedním voláním", async () =>
 {
     int calls = 0;
-    var r = await OcrStrategy.RunAsync(Solid(40, 10, 255, 255, 255), new OcrOptions(), _ => { calls++; return Task.FromResult("Keep your voice down"); });
+    var r = await OcrStrategy.RunAsync(Solid(40, 10, 255, 255, 255), new OcrOptions { BrightFraction = 0 }, _ => { calls++; return Task.FromResult("Keep your voice down"); });
     Eq(1, calls); Eq("isolated", r.Method);
 });
 T("Auto: špatný izolovaný → vybere lepší originál", async () =>
 {
     int calls = 0;
-    var r = await OcrStrategy.RunAsync(Solid(40, 10, 255, 255, 255), new OcrOptions(), _ =>
+    var r = await OcrStrategy.RunAsync(Solid(40, 10, 255, 255, 255), new OcrOptions { BrightFraction = 0 }, _ =>
     { calls++; return Task.FromResult(calls == 1 ? "Heyjskeepyour&Xz" : "Hey, keep your voice down."); });
     Eq(2, calls); Eq("original", r.Method); Eq("Hey, keep your voice down.", r.Text);
 });
 
+Console.WriteLine("== Světlé scény");
+Frame BrightScene()
+{   // světlé pozadí (230) + „text“ 230 s tmavým obrysem 20 px široký pruh
+    var f = new Frame(80, 30);
+    for (int i = 0; i < 80 * 30; i++) { f.Bgra[i * 4] = f.Bgra[i * 4 + 1] = f.Bgra[i * 4 + 2] = 230; f.Bgra[i * 4 + 3] = 255; }
+    for (int y = 10; y < 20; y++) for (int x = 20; x < 60; x++) { int i = (y * 80 + x) * 4; f.Bgra[i] = f.Bgra[i + 1] = f.Bgra[i + 2] = 20; }
+    for (int y = 12; y < 18; y++) for (int x = 24; x < 56; x++) { int i = (y * 80 + x) * 4; f.Bgra[i] = f.Bgra[i + 1] = f.Bgra[i + 2] = 255; }
+    return f;
+}
+T("IsolateLightOutlined: text s obrysem zůstane, světlá plocha bez obrysu zmizí", async () =>
+{
+    var o = ImagePrep.IsolateLightOutlined(BrightScene(), 200, 70, 5, 0);
+    Eq((byte)0, o.Bgra[(14 * 80 + 40) * 4], "text uvnitř obrysu");
+    Eq((byte)255, o.Bgra[(2 * 80 + 5) * 4], "světlé pozadí daleko od obrysu");
+    Eq((byte)255, o.Bgra[(14 * 80 + 22) * 4], "tmavý obrys sám");
+    await Task.CompletedTask;
+});
+T("LightFraction: plocha světlá vs. tmavá", async () =>
+{
+    True(ImagePrep.LightFraction(BrightScene(), 175) > 0.5, "světlá scéna");
+    True(ImagePrep.LightFraction(Solid(10, 10, 20, 20, 20), 175) < 0.01, "tmavá scéna");
+    await Task.CompletedTask;
+});
+T("OcrStrategy: světlá scéna → obě izolace se porovnají a vyhraje čitelnější čtení", async () =>
+{
+    int calls = 0;
+    var r = await OcrStrategy.RunAsync(BrightScene(), new OcrOptions { Upscale = 1 }, _ => { calls++; return Task.FromResult(calls == 1 ? "Yo u knee wh@t | wan7 mol" : "You know what I want more than anything"); });
+    Eq("outlined", r.Method); Eq(2, r.OcrCalls); Eq("You know what I want more than anything", r.Text);
+    int c2 = 0;
+    var r2 = await OcrStrategy.RunAsync(BrightScene(), new OcrOptions { Upscale = 1 }, _ => { c2++; return Task.FromResult(c2 == 1 ? "You know what I want more than anything" : "Yo u knee wh@t | wan7 mol"); });
+    Eq("isolated", r2.Method, "původní izolace zůstává, když je lepší"); Eq("You know what I want more than anything", r2.Text);
+    await Task.CompletedTask;
+});
+T("OcrStrategy: světlá scéna, jedno čtení prázdné → vyhraje to druhé", async () =>
+{
+    int calls = 0;
+    var r = await OcrStrategy.RunAsync(BrightScene(), new OcrOptions { Upscale = 1 }, _ => { calls++; return Task.FromResult(calls == 1 ? "" : "Hey, keep your voice down."); });
+    Eq("outlined", r.Method); Eq("Hey, keep your voice down.", r.Text);
+});
+T("OcrStrategy: obrys má poloměr úměrný zvětšení (jinak by se tahy písmen vyprázdnily)", async () =>
+{
+    var sizes = new List<int>();
+    var f = BrightScene();   // 80×30
+    await OcrStrategy.RunAsync(f, new OcrOptions { Upscale = 2 }, fr => { sizes.Add(fr.Width); return Task.FromResult("Hey, keep your voice down."); });
+    True(sizes.Count == 2, "dvě čtení"); Eq(80 * 2 + 24, sizes[1], "obrys čte zvětšený obraz");
+    // plný tah písma 20 px tlustý (po zvětšení): střed tahu je ≥ 10 px od okraje → s poloměrem 5 by zmizel, s poloměrem 10 zůstane
+    var big = new Frame(120, 60);
+    for (int i = 0; i < 120 * 60; i++) { big.Bgra[i * 4] = big.Bgra[i * 4 + 1] = big.Bgra[i * 4 + 2] = 20; big.Bgra[i * 4 + 3] = 255; }
+    for (int y = 20; y < 40; y++) for (int x = 20; x < 100; x++) { int i = (y * 120 + x) * 4; big.Bgra[i] = big.Bgra[i + 1] = big.Bgra[i + 2] = 255; }
+    var small = ImagePrep.IsolateLightOutlined(big, 200, 70, 5, 0); var wide = ImagePrep.IsolateLightOutlined(big, 200, 70, 10, 0);
+    Eq((byte)255, small.Bgra[(30 * 120 + 60) * 4], "malý poloměr: střed tahu zmizí");
+    Eq((byte)0, wide.Bgra[(30 * 120 + 60) * 4], "dostatečný poloměr: střed tahu zůstane");
+});
+T("OcrStrategy: tmavá scéna se chová jako dřív (obrys se nezkouší)", async () =>
+{
+    int calls = 0;
+    var r = await OcrStrategy.RunAsync(Solid(40, 10, 20, 20, 20), new OcrOptions { Upscale = 1 }, _ => { calls++; return Task.FromResult("Keep your voice down"); });
+    Eq("isolated", r.Method); Eq(1, calls);
+});
+
+T("TesseractTsv: slova se seskupí do řádků s polohou, dialog a úkol zůstanou oddělené", async () =>
+{
+    string H = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n";
+    string W(int b, int ln, int wn, int l, int t, int w, int h, string tx) => $"5\t1\t{b}\t1\t{ln}\t{wn}\t{l}\t{t}\t{w}\t{h}\t90\t{tx}\n";
+    var tsv = H + W(1, 1, 1, 100, 100, 60, 20, "Jo!") + W(2, 1, 1, 100, 400, 50, 20, "Get") + W(2, 1, 2, 160, 400, 30, 20, "in") + "4\t1\t2\t1\t1\t0\t0\t0\t0\t0\t-1\t\n";
+    var l = TesseractTsv.ParseLines(tsv, 1000, 500);
+    Eq(2, l.Count); Eq("Get in", l[1].Text); True(Math.Abs(l[1].Y - 0.8) < 1e-9, "y"); True(Math.Abs(l[1].X - 0.1) < 1e-9, "x");
+    var sel = new DialogSelector(); var kept = sel.Select(l);
+    True(kept.Count >= 1, "něco projde");
+    await Task.CompletedTask;
+});
+T("DialogSelector: úkol viditelný déle než 25 s sám dál zůstává ignorovaný", async () =>
+{
+    var t = DateTime.UtcNow; var sel = new DialogSelector(() => t);
+    var dlg = new OcrLine("Hey keep your voice down now", 0.3, 0.88, 0.4, 0.025);
+    var obj = new OcrLine("Get in the", 0.4, 0.945, 0.12, 0.02);
+    sel.Select(new[] { dlg, obj });
+    for (int i = 0; i < 12; i++) { t = t.AddSeconds(20); Eq(0, sel.Select(new[] { obj }).Count, "úkol sám po " + (i + 1) * 20 + " s"); }
+    await Task.CompletedTask;
+});
+
+Console.WriteLine("== Předvolby výkonu a profily her");
+T("PerformancePresets: použití a rozpoznání předvolby", async () =>
+{
+    var s = new AppSettings();
+    Eq(PerformancePreset.Balanced, PerformancePresets.Detect(s), "výchozí = vyvážený");
+    PerformancePresets.Apply(s, PerformancePreset.Eco); Eq(500, s.IntervalMs); True(!s.SpeculativeTranslate, "eco bez spekulace"); Eq(PerformancePreset.Eco, PerformancePresets.Detect(s));
+    PerformancePresets.Apply(s, PerformancePreset.Fast); Eq(120, s.IntervalMs); Eq(PerformancePreset.Fast, PerformancePresets.Detect(s));
+    s.IntervalMs = 333; Eq(PerformancePreset.Custom, PerformancePresets.Detect(s));
+    PerformancePresets.Apply(s, PerformancePreset.Custom); Eq(333, s.IntervalMs, "Custom nic nemění");
+    await Task.CompletedTask;
+});
+T("GameProfiles: nastavení se pamatuje zvlášť pro každou hru a nemění překladač ani klíče", async () =>
+{
+    var dir = Path.Combine(Path.GetTempPath(), "gp_" + Guid.NewGuid().ToString("N")); var gp = new GameProfiles(dir);
+    var s = new AppSettings { FontSize = 40, IntervalMs = 500, Translator = TranslatorKind.DeepL, DeepLKeyProtected = "klic" };
+    s.Region = new RegionF { X = 0.1, Y = 0.7, W = 0.8, H = 0.2 };
+    gp.Save("GTA6.exe", s);
+    True(gp.Exists("gta6.EXE"), "název bez ohledu na velikost písmen");
+    True(!gp.Exists("jina.exe"), "jiná hra profil nemá");
+    var t = new AppSettings { Translator = TranslatorKind.GoogleUnofficial, DeepLKeyProtected = "jiny" };
+    True(gp.TryApply("GTA6.exe", t), "použit");
+    Eq(40.0, t.FontSize); Eq(500, t.IntervalMs); Eq(0.7, t.Region.Y);
+    Eq(TranslatorKind.GoogleUnofficial, t.Translator, "překladač zůstane"); Eq("jiny", t.DeepLKeyProtected, "klíč zůstane");
+    True(!gp.TryApply("jina.exe", t), "chybějící profil → false");
+    Directory.Delete(dir, true); await Task.CompletedTask;
+});
+
+T("PerformancePresets.ResetTuning: vrátí výkon a OCR, ale nechá zdroj, jazyky a vzhled", async () =>
+{
+    var s = new AppSettings { IntervalMs = 777, WhiteThreshold = 99, StableReads = 4, UseTesseract = false, IgnoreSideLines = false, TargetLang = "de", FontSize = 50, ProgramName = "g.exe" };
+    PerformancePresets.ResetTuning(s);
+    Eq(200, s.IntervalMs); Eq(175, s.WhiteThreshold); Eq(2, s.StableReads); True(s.UseTesseract && s.IgnoreSideLines, "zapnuto");
+    Eq("de", s.TargetLang); Eq(50.0, s.FontSize); Eq("g.exe", s.ProgramName);
+    await Task.CompletedTask;
+});
+T("UiLanguage: nabídka ukazuje jen název jazyka", async () =>
+{
+    var u = new UiLanguage("de", "Deutsch", true, "x");
+    Eq("Deutsch", u.Label); Eq("Deutsch", u.ToString());
+    await Task.CompletedTask;
+});
+T("Lokalizace: všechny jazykové soubory jsou platné, název souboru = kód, chybějící text se zobrazí anglicky", async () =>
+{
+    var dir = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Overlingo.App", "Languages");
+    var av = Loc.Available(dir);
+    foreach (var code in new[] { "de", "es", "fr", "pl", "pt", "sk", "ru", "uk" })
+    {
+        var l = av.FirstOrDefault(a => a.Code == code);
+        True(l != null, "jazyk " + code + " je v nabídce");
+        True(Path.GetFileNameWithoutExtension(l!.File) == code, "název souboru = kód (" + code + ")");
+        True(l.MachineTranslated, code + " je označen jako strojový překlad");
+        True(Loc.Set(code, dir), "načtení " + code);
+        True(Loc.T("Uložit") != "Uložit", code + ": přeloženo");
+    }
+    Loc.Set("de", dir);
+    Eq("Speichern", Loc.T("Uložit"), "německy");
+    // text, který německý soubor nemá, ale anglický ano → anglicky (ne česky)
+    Eq("Report saved: C:\\x.txt", Loc.T("Report uložen: C:\\x.txt"), "záloha angličtinou");
+    Loc.Set("cs", dir);
+    await Task.CompletedTask;
+});
+T("DialogSelector: nový dialog na místě, kde dřív visel úkol, se neignoruje (zóna je vázaná na text)", async () =>
+{
+    var t = DateTime.UtcNow; var sel = new DialogSelector(() => t);
+    var obj = new OcrLine("Get in the", 0.4, 0.945, 0.12, 0.02);
+    sel.Select(new[] { new OcrLine("Hey keep your voice down now", 0.3, 0.88, 0.4, 0.025), obj });
+    Eq(0, sel.Select(new[] { obj }).Count, "úkol sám se ignoruje");
+    var other = new OcrLine("Where are you going with that", 0.3, 0.945, 0.4, 0.02);
+    Eq(1, sel.Select(new[] { other }).Count, "jiný text na stejném místě projde");
+    await Task.CompletedTask;
+});
+T("DialogSelector: krátký osamocený úkol nezamkne polohu (následný dialog nad ním vyhraje)", async () =>
+{
+    var sel = new DialogSelector();
+    var obj = new OcrLine("Get in the", 0.4, 0.955, 0.12, 0.018);
+    sel.Select(new[] { obj });
+    var r = sel.Select(new[] { new OcrLine("Jo, tak jdeme na to hned teď", 0.3, 0.885, 0.4, 0.022), obj });
+    Eq(1, r.Count); True(r[0].Text.StartsWith("Jo"), "dialog, ne úkol");
+    await Task.CompletedTask;
+});
+T("DialogSelector: okraj naučený omylem z úkolu mise se po třech dialozích nad ním opraví", async () =>
+{
+    var sel = new DialogSelector();
+    OcrLine At(string t, double bottom) => new OcrLine(t, 0.3, bottom - 0.022, 0.4, 0.022);
+    foreach (var t in new[] { "Get in the speedboat now", "Reach the marked yacht today", "Follow the blue marker closely", "Drive carefully along the shore" })
+        sel.Select(new[] { At(t, 0.965) });
+    True(Math.Abs(sel.Anchor - 0.965) < 0.011, "okraj se mylně naučil z úkolů: " + sel.Anchor);
+    Eq(0, sel.Select(new[] { At("You paid your dues and more", 0.912) }).Count, "první dialog ještě neprojde");
+    Eq(0, sel.Select(new[] { At("It is time for this city", 0.912) }).Count, "druhý také ne");
+    Eq(1, sel.Select(new[] { At("To know your real name", 0.912) }).Count, "třetí posune okraj na dialog a projde");
+    Eq(1, sel.Select(new[] { At("We can be good friends Jason", 0.912) }).Count, "další dialogy procházejí");
+    await Task.CompletedTask;
+});
+T("DialogSelector: zastaralý okraj se po čtyřech různých dialozích jinde zahodí", async () =>
+{
+    var sel = new DialogSelector();
+    OcrLine At(string t, double bottom) => new OcrLine(t, 0.3, bottom - 0.022, 0.4, 0.022);
+    foreach (var t in new[] { "First long sentence here today", "Second long sentence there tomorrow", "Third spoken line about boats", "Fourth casual talk over drinks" })
+        sel.Select(new[] { At(t, 0.912) });
+    True(!double.IsNaN(sel.Anchor), "naučeno");
+    int passed = 0;
+    foreach (var t in new[] { "Alpha bravo charlie delta echo", "Foxtrot golf hotel india juliet", "Kilo lima mike november oscar", "Papa quebec romeo sierra tango" })
+        passed += sel.Select(new[] { At(t, 0.70) }).Count;
+    True(passed >= 1, "po několika neshodách se okraj zahodil a nový dialog projde");
+    await Task.CompletedTask;
+});
 Console.WriteLine("== Nastavení");
+T("Nastavení: staré nastavení s vypnutým filtrem dialogu se jednou přepne na zapnuto, pozdější volba platí", async () =>
+{
+    var p = Path.Combine(Path.GetTempPath(), "gtl_" + Guid.NewGuid().ToString("N") + ".json");
+    File.WriteAllText(p, "{\"IgnoreSideLines\": false}");
+    var l = AppSettings.Load(p); True(l.IgnoreSideLines, "migrace zapne");
+    l.IgnoreSideLines = false; l.Save(p);
+    True(!AppSettings.Load(p).IgnoreSideLines, "vědomé vypnutí se respektuje");
+    File.Delete(p); await Task.CompletedTask;
+});
 T("uložení/načtení + Normalize + klíče nejsou v čitelné podobě", async () =>
 {
     var p = Path.Combine(Path.GetTempPath(), "gtl_" + Guid.NewGuid().ToString("N") + ".json");
@@ -917,6 +1133,100 @@ T("Nastavení: zkratky hlasitosti se vrátí na výchozí", async () =>
 {
     var s = new AppSettings { HkVolUp = "xx", HkVolDown = "" }; s.Normalize();
     Eq("Ctrl+PageUp", s.HkVolUp, "up"); Eq("Ctrl+PageDown", s.HkVolDown, "down");
+    await Task.CompletedTask;
+});
+
+Console.WriteLine("== v1.0.2: dialog vs. úkol mise");
+OcrLine L(string t, double y, double h = 0.05) => new(t, 0.2, y, 0.6, h);
+T("DialogSelector: seskupení do bloků podle mezery", async () =>
+{
+    var dlg = new[] { L("Hele, je to sice kousek cesty", 0.10), L("autem k místu, kde kotví jachta", 0.16) };   // zalomená věta (malá mezera)
+    var blocks = DialogSelector.Group(dlg.Append(L("Get in the", 0.55)).ToList(), 0.7);
+    Eq(2, blocks.Count, "bloky"); Eq(2, blocks[0].Lines.Count, "zalomená věta zůstane pohromadě"); Eq("Get in the", blocks[1].Lines[0].Text, "úkol zvlášť");
+    await Task.CompletedTask;
+});
+T("DialogSelector: dialog nad úkolem, úkol se nepřilepí", async () =>
+{
+    var sel = new DialogSelector();
+    var r = sel.Select(new[] { L("Jo! Let's go", 0.10), L("Get in the", 0.55) });
+    Eq(1, r.Count, "jen dialog"); Eq("Jo! Let's go", r[0].Text, "text dialogu"); Eq(1, sel.Ignored, "úkol ignorován");
+    await Task.CompletedTask;
+});
+T("DialogSelector: krátký dialog nad delším úkolem vyhraje díky zámku", async () =>
+{
+    var sel = new DialogSelector();
+    sel.Select(new[] { L("Right then, off we go together", 0.10), L("Get in the", 0.55) });
+    var r = sel.Select(new[] { L("Okay.", 0.10), L("Get in the speedboat quickly now", 0.55) });
+    Eq("Okay.", r[0].Text, "zámek drží polohu dialogu");
+    await Task.CompletedTask;
+});
+T("DialogSelector: samotný úkol mise se ignoruje (zóna), dialog bez úkolu projde", async () =>
+{
+    var now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+    var sel = new DialogSelector(() => now);
+    sel.Select(new[] { L("Look at that", 0.10), L("Get in the", 0.55) });                      // úkol se odmítne a zapamatuje
+    Eq(0, sel.Select(new[] { L("Get in the", 0.55) }).Count, "osamocený úkol se nepřekládá");
+    Eq(1, sel.Select(new[] { L("Look at that", 0.10) }).Count, "dialog bez úkolu projde");
+    now = now.AddSeconds(240);
+    Eq(1, sel.Select(new[] { L("Get in the", 0.55) }).Count, "po vypršení paměti zóny se úkol bere jako běžný text");
+    await Task.CompletedTask;
+});
+T("DialogSelector: větší písmo vyhraje, když zámek ještě není", async () =>
+{
+    var sel = new DialogSelector();
+    var r = sel.Select(new[] { L("small hint at top", 0.05, 0.03), L("Big dialogue line here", 0.60, 0.06) });
+    Eq("Big dialogue line here", r[0].Text, "vyšší písmo");
+    await Task.CompletedTask;
+});
+T("DialogSelector: jediný blok bez zóny se vždy bere, prázdný vstup nic", async () =>
+{
+    var sel = new DialogSelector();
+    Eq(1, sel.Select(new[] { L("Only subtitle", 0.8) }).Count, "jediný blok");
+    Eq(0, sel.Select(Array.Empty<OcrLine>()).Count, "prázdné");
+    Eq(1, new AppSettings().IgnoreSideLines ? 1 : 0, "výchozí zapnuto");
+    await Task.CompletedTask;
+});
+
+T("DialogSelector (data z logu hry): naučí se spodní okraj dialogu, úkol a PHOTO ignoruje i samostatně", async () =>
+{
+    OcrLine D(string t, double y = 0.885, double h = 0.027) => new(t, 0.3, y, 0.4, h);
+    var sel = new DialogSelector();
+    string[] dlg = { "So who's gonna be on this yacht?", "Hey, that's fine by me!", "Today, we bring you two steps back.", "Some crazy people, bro, and Kat of course." };
+    foreach (var t in dlg) Eq(1, sel.Select(new[] { D(t) }).Count, "dialog se bere");
+    True(!double.IsNaN(sel.Anchor) && Math.Abs(sel.Anchor - 0.912) < 0.011, "naučený okraj " + sel.Anchor);
+    Eq(0, sel.Select(new[] { D("Drive to the", 0.946, 0.018) }).Count, "samostatný úkol mise se ignoruje");
+    Eq(0, sel.Select(new[] { new OcrLine("PHOTO", 0.775, 0.948, 0.032, 0.016) }).Count, "samostatné PHOTO se ignoruje");
+    var both = sel.Select(new[] { D("Let's bounce, we're late!"), D("Get in the", 0.945, 0.017) });
+    Eq(1, both.Count, "dialog vedle úkolu"); Eq("Let's bounce, we're late!", both[0].Text, "text dialogu");
+    var two = sel.Select(new[] { D("How do you think Kat took all of those trips", 0.84, 0.03), D("when she was on probation, eh?", 0.879, 0.03) });
+    Eq(2, two.Count, "dvouřádkový dialog zůstane celý (spodní okraj sedí)");
+    await Task.CompletedTask;
+});
+T("DialogSelector: dlouho viditelný úkol s chvějivým OCR nepřepíše naučený okraj dialogu", async () =>
+{
+    OcrLine D(string t, double y = 0.885, double h = 0.027) => new(t, 0.3, y, 0.4, h);
+    var sel = new DialogSelector();
+    foreach (var t in new[] { "So who's gonna be on this yacht?", "Hey, that's fine by me!", "Today, we bring you two steps back." }) sel.Select(new[] { D(t) });
+    double a0 = sel.Anchor; True(!double.IsNaN(a0), "naučeno");
+    string[] jitter = { "Get-in the speedboat", "Get in the speedboat", "Get in the speedbo at", "Get in the  speedboat.", "get in the speedboat", "Get in the speedboat |", "Get in the speed boat" };
+    foreach (var j in jitter) Eq(0, sel.Select(new[] { D(j, 0.945, 0.017) }).Count, "úkol se ignoruje: " + j);
+    True(Math.Abs(sel.Anchor - a0) < 0.001, "okraj se nezměnil " + sel.Anchor);
+    Eq(1, sel.Select(new[] { D("Somebody wants to be free, ah?"), D("Get in the speedboat", 0.945, 0.017) }).Count, "dialog vedle úkolu projde");
+    await Task.CompletedTask;
+});
+T("DialogSelector: změna oblasti zapomene okraj; posunuté titulky se přeučí", async () =>
+{
+    OcrLine D(string t, double y) => new(t, 0.3, y, 0.4, 0.027);
+    var sel = new DialogSelector();
+    foreach (var t in new[] { "one two three four five", "six seven eight nine ten", "alpha beta gamma delta eps", "red green blue yellow pink" }) sel.Select(new[] { D(t, 0.885) }, "A");
+    Eq(0, sel.Select(new[] { D("hud text far below here", 0.95) }, "A").Count, "mimo okraj");
+    sel.Select(new[] { D("hud text far below here", 0.95) }, "B");
+    True(double.IsNaN(sel.Anchor), "nový rámec = zapomenuto");
+    Eq(1, sel.Select(new[] { D("hud text far below here", 0.95) }, "B").Count, "bez okraje se bere");
+    var sel2 = new DialogSelector();
+    foreach (var t in new[] { "one two three four five", "six seven eight nine ten", "alpha beta gamma delta eps", "red green blue yellow pink" }) sel2.Select(new[] { D(t, 0.885) });
+    foreach (var mv in new[] { "moved apple banana cherry", "grape lemon mango peach", "river mountain valley forest", "silver golden bronze copper", "morning evening midnight noon", "winter summer autumn spring" }) sel2.Select(new[] { D(mv, 0.70) });   // titulky se přesunuly výš
+    Eq(1, sel2.Select(new[] { D("another moved subtitle line", 0.70) }).Count, "přeučený okraj přijme nové místo");
     await Task.CompletedTask;
 });
 

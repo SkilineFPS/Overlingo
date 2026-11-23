@@ -7,6 +7,8 @@ public sealed class OcrOptions
     public int Upscale { get; set; } = 2;
     public int MaxDimension { get; set; } = 2600;
     public int MinLetters { get; set; } = 3;
+    /// <summary>Od jakého podílu světlých pixelů se zkouší izolace s obrysem (světlé scény). 0 = vypnuto.</summary>
+    public double BrightFraction { get; set; } = 0.08;
 }
 
 public sealed record OcrOutcome(string Text, string Method, int OcrCalls);
@@ -32,17 +34,27 @@ public static class OcrStrategy
         }
 
         var iso = await Iso();
-        if (Good(iso)) return new(iso, "isolated", 1);
+        int calls0 = 1; string isoMethod = "isolated"; Frame secondFrame = isoFrame;
+        // Světlá scéna: bílá maska je zaplevelená pozadím → navíc se zkusí izolace s obrysem a vybere se čitelnější čtení.
+        // Původní izolace se tedy vždy provede jako dřív; nový průchod ji jen může vylepšit.
+        if (o.BrightFraction > 0 && ImagePrep.LightFraction(scaled, o.WhiteThreshold) >= o.BrightFraction)
+        {
+            secondFrame = ImagePrep.IsolateLightOutlined(scaled, radius: 5 * scale);   // poloměr se zvětšuje spolu s obrazem
+            var outl = TextTools.Normalize(await ocr(secondFrame));
+            calls0 = 2;
+            if (TextTools.QualityScore(outl) > TextTools.QualityScore(iso)) { iso = outl; isoMethod = "outlined"; }
+        }
+        if (Good(iso)) return new(iso, isoMethod, calls0);
         var orig = await Orig();
         double qi = TextTools.QualityScore(iso), qo = TextTools.QualityScore(orig);
-        var best = qo > qi ? new OcrOutcome(orig, "original", 2) : new OcrOutcome(iso, "isolated", 2);
+        var best = qo > qi ? new OcrOutcome(orig, "original", calls0 + 1) : new OcrOutcome(iso, isoMethod, calls0 + 1);
         // Druhý engine (Tesseract) jen když je výsledek neprázdný, ale slabý – zbytečně nezdržuje čtení.
         if (second != null && !string.IsNullOrWhiteSpace(best.Text) && !Good(best.Text))
         {
             try
             {
-                var t = TextTools.Normalize(await second(isoFrame));
-                if (TextTools.QualityScore(t) > TextTools.QualityScore(best.Text)) return new(t, "tesseract", 3);
+                var t = TextTools.Normalize(await second(secondFrame));
+                if (TextTools.QualityScore(t) > TextTools.QualityScore(best.Text)) return new(t, "tesseract", calls0 + 2);
             }
             catch { /* druhý engine je jen pomocný */ }
         }
